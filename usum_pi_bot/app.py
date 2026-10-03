@@ -306,7 +306,7 @@ class App:
                     if loaded.gradient_seen:
                         learned=stats.limits()
                         if learned:
-                            self.emit(f'Observed reset #{len(stats.samples)}: learned startup limits {learned[0]:.2f}s and {learned[1]} A taps.')
+                            self.emit(f'Observed reset #{stats.observed_count}: learned startup limits {learned[0]:.2f}s and {learned[1]} A taps (latest {len(stats.samples)} observations).')
                         else:
                             self.emit(f'Reset timing observations: {len(stats.samples)}/10 required before learned fallback is available.')
                     self.emit(f'Reset-to-loaded-save took {time.monotonic()-reset_start:.2f}s.')

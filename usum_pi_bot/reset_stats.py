@@ -14,6 +14,7 @@ class ResetStats:
         self.path = Path(path)
         self.key = key
         self.samples = []
+        self.observed_count = 0
         if self.path.exists():
             with self.path.open(encoding='utf-8') as file:
                 for line in file:
@@ -32,6 +33,7 @@ class ResetStats:
             raise ValueError('Invalid observed reset duration')
         if not isinstance(taps, int) or not 0 <= taps <= 1000:
             raise ValueError('Invalid A tap count')
+        self.observed_count += 1
         self.samples.append((seconds, taps))
         self.samples = self.samples[-self.WINDOW:]
 
