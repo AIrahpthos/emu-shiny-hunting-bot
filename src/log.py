@@ -27,3 +27,4 @@ def write_log(message, time=None):
 
     # Print the content
     print(message)
+

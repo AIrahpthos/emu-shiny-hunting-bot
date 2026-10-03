@@ -144,3 +144,4 @@ def configure_citra(gp=None):
 
     input("After clicking 'OK', press enter:")
     press_and_release(gp, [button.XUSB_GAMEPAD_A])
+

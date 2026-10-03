@@ -144,3 +144,4 @@ def wait_for_colour(window, x=None, y=None, r=0, g=0, b=0, delay=0.1, limit=100)
 
     # Desired colour found
     return i
+

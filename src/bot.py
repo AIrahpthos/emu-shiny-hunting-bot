@@ -241,3 +241,4 @@ def static_encounter_bot(citra, game=None, autostart=None):
         total_seconds = total_duration.total_seconds()
 
         write_log(f"Resetting encounter {encounters} after {total_seconds}s.")
+

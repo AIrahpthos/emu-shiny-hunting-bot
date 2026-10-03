@@ -1,0 +1,3 @@
+Pillow>=10.4,<13
+mss>=9,<11
+pywin32>=306,<400; sys_platform == 'win32'

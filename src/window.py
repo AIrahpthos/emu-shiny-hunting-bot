@@ -29,3 +29,4 @@ def start_window(script, delay=STARTUP_DELAY):
 
     # Find the citra window
     return find_window()
+

@@ -3,3 +3,20 @@ encounters.txt
 *__pycache__
 *.log
 hatched.txt
+
+
+# Hardware installations and private runtime data
+**/.venv/
+**/__pycache__/
+*.py[cod]
+**/settings.json
+**/references/
+**/out/
+**/backups/
+**/capture_viewer/
+**/capture_executable.txt
+**/capture_rules_installer.txt
+**/.capture-supervisor.lock
+cc3dsfs*.zip
+*.dmp
+*.log

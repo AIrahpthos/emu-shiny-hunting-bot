@@ -1,84 +1,39 @@
-# Emulator Shiny Hunting Bot
-## Automating Static Encounter Resets
-### Created By Damon Murdoch ([@SirScrubbington](https://github.com/SirScrubbington))
+# USUM shiny hunting: emulator and real 3DS hardware
 
-## Description
+Fork of [Damon Murdoch’s emu-shiny-hunting-bot](https://github.com/damon-murdoch/emu-shiny-hunting-bot), extended to control a real Nintendo 3DS using Rosalina InputRedirection and a USB capture board. Damon’s original emulator source remains at the repository root; its original instructions are in [README.emulator.md](README.emulator.md). The MIT license and original attribution are retained.
 
-This is a simple shiny hunting bot that uses a virtual controller in Python and an emulator to automate resetting static encounters in Pokémon games.
-The bot detects shiny encounters by measuring the delay between the start of a battle and the availability of the menu. Shiny encounters make this delay longer!
+## Choose a version
 
-While the bot is reliable, there are some cases where it may get stuck. However, the bot is designed to detect these situations and reset to continue shiny hunting. 
-Planned future updates include support for hatching bots and additional games.
+| Version | Folder | Capture source |
+| --- | --- | --- |
+| Raspberry Pi / Linux X11 | [usum_pi_bot](usum_pi_bot/README.md) | cc3dsfs separate bottom-screen window |
+| Windows hardware version | [usum_hardware_bot](usum_hardware_bot/README.md) | Loopy viewer named `3DS Capture - Bottom…` |
+| Original emulator bot | Root and `src/` | See original README |
 
-## Table of Contents
+The Pi version contains the latest development: gradient-based save loading, repeated encounter A taps, configurable Ultra Beast cutscene skipping, learned reset timing fallback, capture process restart, and persistent recovery reports. Windows retains the earlier working hardware adaptation; it does not yet have all Pi recovery and Ultra Beast features.
 
-- [Installation](#installation)
-- [Usage](#usage)
-- [Future Changes](#future-changes)
-- [Problems / Improvements](#problems--improvements)
-- [Changelog](#changelog)
-- [Sponsor this Project](#sponsor-this-project)
+## What the bot does
 
-## Installation
+1. Soft-reset the game using L + R + START.
+2. Tap A until a reference image identifies the loaded-save gradient.
+3. Trigger the encounter with A and optional forward movement. On Pi, continue tapping A while checking the encounter.
+4. Time bottom-screen transitions and compare them with a manually confirmed normal baseline.
+5. Stop for a suspected shiny or uncertain result; optionally repeat normal encounters.
 
-1. Clone this repository:
-   ```bash
-   git clone https://github.com/damon-murdoch/emu-shiny-hunting-bot.git
-   ```
-2. Install the required dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-3. Ensure you have the required emulator installed.
-4. Run the script to start the bot:
-   ```bash
-   python main.py
-   ```
+It uses visible capture-window pixels rather than reading game memory. Timing is an indication, not proof of shininess: inspect every stopped encounter. The first encounter of each run must be manually confirmed normal. There is no automatic catching or save editing.
 
-## Usage
+## Current status
 
-1. Start the bot by running the script. The bot will search for the emulator window on your desktop.
-2. Select from the available bot options:
-   - Static Encounter Bot
-   - Egg Hatcher (XY, ORAS, SM/USUM) – *Coming Soon!*
-3. The bot will take a screenshot of the game window for confirmation before proceeding with shiny hunting.
-4. The bot will reset the game automatically upon non-shiny encounters and continue until a shiny is found.
+Developed around Ultra Moon on a New 3DS with a Loopy New 3DS capture board and Raspberry Pi 4, including a headless TigerVNC/Openbox desktop accessed from an iPad. NTR is not required for normal operation; Rosalina InputRedirection supplies the controls.
 
-## Future Changes
+In the current hardware testing, removing Ultra Moon’s update shortened reset loading and appeared to resolve repeated console crashes. This is one observed configuration, not a general diagnosis or recommendation to remove updates. The viewer supervisor recovers viewer process exits; it cannot reboot a crashed 3DS or detect every frozen capture feed.
 
-- Adding support for egg hatching in various Pokémon games.
-- Improving shiny detection accuracy.
-- Implementing support for more games beyond the Pokémon series.
+Top-screen learned recognition is a future experiment. It is **not implemented** in these versions.
 
-### Change Table
+## Validation and credits
 
-| Change Description            | Priority |
-| ----------------------------- | -------- |
-| Add Egg Hatching Bot support   | High     |
-| Improve failure recovery logic | Medium   |
-| Expand to more games           | Medium   |
+Pi: 51 automated tests cover packets, releases/cancellation, timing and skipped transitions, gradient matching, reset statistics, recovery, X11 geometry, archive validation and viewer reports. Windows tests are separate. New encounter configurations still need a single-encounter console test before unattended repeating.
 
-## Problems / Improvements
+Original source snapshot: `51ae94d15abdb8d873f25270f757cf575871ea4d`.
 
-If you have any suggestions or encounter issues, feel free to open an issue [here](../../issues) or reach out to me on Twitter for help reproducing the problem.
-
-## Changelog
-
-### Ver. 0.1.0
-
-- Confirmed static encounter bot works through testing, improved logging
-
-### Ver. 0.0.2
-
-- Added file logging (events.log)
-- Random delay after each reset (to negate any potential seeding issues)
-
-### Ver. 0.0.1
-
-- Initial release with Static Encounter Bot functionality for emulators.
-- Basic error handling to detect stuck situations and reset the game.
-
-## Sponsor this Project
-
-If you'd like to support this project and future updates, consider donating through PayPal:  
-[https://www.paypal.com/paypalme/sirsc](https://www.paypal.com/paypalme/sirsc)
+Capture viewer: [Lorenzooone/cc3dsfs](https://github.com/Lorenzooone/cc3dsfs), downloaded separately by the Pi installer with a pinned release and checksum. Input protocol reference: [TuxSH/InputRedirectionClient-Qt](https://github.com/TuxSH/InputRedirectionClient-Qt). No game files, saves, capture binaries or crash dumps are included.
