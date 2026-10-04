@@ -22,7 +22,7 @@ cd emu-shiny-hunting-bot/usum_pi_bot
 bash Setup.sh
 ```
 
-Run setup as your normal user, without putting `sudo` before it. It requests administrator access for system dependencies and USB permissions, creates a Python environment, and downloads a checksum-verified cc3dsfs release.
+Setup installs the required dependencies and USB permissions, creates a Python environment, and downloads a checksum-verified cc3dsfs release.
 
 When setup finishes, unplug and reconnect the capture USB cable.
 
