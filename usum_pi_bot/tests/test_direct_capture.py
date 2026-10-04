@@ -227,3 +227,45 @@ time.sleep(10)
             finally:
                 stop.set();backend.close();server.close();thread.join(3)
             self.assertFalse(errors)
+
+class NtrControlHealthTests(unittest.TestCase):
+    def test_control_timeout_keeps_live_video_and_does_not_record_capture_crash(self):
+        from viewer_reports import read_reports
+        with tempfile.TemporaryDirectory() as tmp:
+            store=FrameStore();store.publish(Image.new('RGB',(320,240),'blue'))
+            messages=[];backend=NtrCapture(store,'10.0.0.106',emit=messages.append,logs=Path(tmp))
+            self.assertEqual(backend._control_failure(socket.timeout('timed out')),30)
+            self.assertEqual(store.latest().sequence,1)
+            self.assertEqual(read_reports(tmp),[])
+            backend._control_failure(socket.timeout('timed out'))
+            self.assertEqual(len(messages),1)
+
+    def test_control_failure_without_video_remains_reported(self):
+        from viewer_reports import read_reports
+        with tempfile.TemporaryDirectory() as tmp:
+            store=FrameStore();backend=NtrCapture(store,'10.0.0.106',logs=Path(tmp))
+            self.assertEqual(backend._control_failure(ConnectionError('closed')),3)
+            self.assertEqual(len(read_reports(tmp)),1)
+            with self.assertRaises(ViewerUnavailable):store.latest()
+
+    def test_reconnect_does_not_restart_a_live_previously_requested_stream(self):
+        store=FrameStore();store.publish(Image.new('RGB',(320,240),'blue'))
+        backend=NtrCapture(store,'10.0.0.106');backend.stream_requested=True
+        fake=Mock();fake.recv.return_value=control_packet(0)
+        sent=[]
+        def send(data):
+            sent.append(HEADER.unpack(data)[3]);backend.stop.set()
+        fake.sendall.side_effect=send
+        with patch.object(backend,'_feed_live',return_value=True), \
+             patch('ntr_capture.socket.create_connection',return_value=fake), \
+             patch('ntr_capture.select.select',return_value=([fake],[],[])), \
+             patch('ntr_capture.time.monotonic',side_effect=__import__('itertools').chain([0],__import__('itertools').repeat(1))):
+            backend._control()
+        self.assertEqual(sent,[0])  # Heartbeat only; no new stream command 901.
+        self.assertEqual(store.latest().sequence,1)
+
+    def test_quiet_retry_is_interrupted_when_video_has_stalled(self):
+        backend=NtrCapture(FrameStore(),'10.0.0.106')
+        with patch.object(backend.stop,'wait') as wait:
+            backend._wait_to_retry(30)
+        wait.assert_not_called()

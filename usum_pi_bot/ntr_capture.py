@@ -94,6 +94,8 @@ class NtrCapture:
         self.stop=threading.Event(); self.sock=None; self.tcp=None
         self.assembler=JpegAssembler()
         self.threads=[]
+        self.stream_requested=False
+        self.control_warning=False
 
     def emit(self, message):
         if self.log_path:
@@ -130,17 +132,52 @@ class NtrCapture:
                 if not self.stop.is_set(): self.emit('NTR video socket closed unexpectedly.')
                 return
 
+    def _feed_live(self):
+        from capture_linux import ViewerUnavailable
+        try:
+            self.store.latest()
+            return True
+        except ViewerUnavailable:
+            return False
+
+    def _control_failure(self, error):
+        """TCP failure does not imply loss of the independent UDP video feed."""
+        if self._feed_live():
+            if not self.control_warning:
+                self.emit(f'NTR control link unavailable: {error}. Bottom video is still live; continuing capture and retrying control in the background.')
+                self.control_warning=True
+            return 30
+        self.emit(f'NTR control unavailable and no fresh video: {error}. Retrying in 3 seconds.')
+        if self.logs:
+            from viewer_reports import record_exit
+            with self.log_lock:
+                record_exit(self.logs, {'log_file':self.log_path.name,'returncode':-1,
+                            'reason':str(error),'capture_source':'NTR wireless'})
+                self.log_path=self.logs/f'ntr-{time.time_ns()}.log'
+        return 3
+
+    def _wait_to_retry(self, delay):
+        # Quiet retries while streaming, but respond promptly if video also stalls.
+        deadline=time.monotonic()+delay
+        while not self.stop.is_set() and time.monotonic()<deadline:
+            if delay>3 and not self._feed_live(): return
+            self.stop.wait(.1)
+
     def _control(self):
         while not self.stop.is_set():
             tcp=None
+            retry_delay=3
             try:
-                self.emit(f'Connecting NTR bottom stream to {self.ip} (JPEG Compat).')
+                if not self.control_warning:
+                    self.emit(f'Connecting NTR bottom stream to {self.ip} (JPEG Compat).')
                 tcp=socket.create_connection((self.ip,8000),timeout=3)
                 self.tcp=tcp; tcp.settimeout(1)
                 sequence=0
-                tcp.sendall(control_packet(sequence,901,self.args)); sequence+=1
+                if not self.stream_requested or not self._feed_live():
+                    tcp.sendall(control_packet(sequence,901,self.args)); sequence+=1
+                    self.stream_requested=True
+                    self.emit('NTR stream requested; waiting for bottom-screen frames.')
                 buffer=bytearray(); heartbeat=time.monotonic(); requested=heartbeat
-                self.emit('NTR stream requested; waiting for bottom-screen frames.')
                 while not self.stop.is_set():
                     ready,_,_=select.select([tcp],[],[],.1)
                     if ready:
@@ -155,6 +192,9 @@ class NtrCapture:
                             if len(buffer)<size: break
                             message=bytes(buffer[HEADER.size:size])
                             del buffer[:size]
+                            if self.control_warning:
+                                self.emit('NTR control link restored.')
+                                self.control_warning=False
                             if header[3]==0 and message:
                                 self.emit('NTR: '+message.decode('utf-8','replace').strip()[:1000])
                     now=time.monotonic()
@@ -167,17 +207,11 @@ class NtrCapture:
                         heartbeat=time.monotonic()
             except (OSError,ValueError) as e:
                 if not self.stop.is_set():
-                    self.store.invalidate(str(e)); self.emit(f'NTR disconnected: {e}. Retrying in 3 seconds.')
-                    if self.logs:
-                        from viewer_reports import record_exit
-                        with self.log_lock:
-                            record_exit(self.logs, {'log_file':self.log_path.name,'returncode':-1,
-                                        'reason':str(e),'capture_source':'NTR wireless'})
-                            self.log_path=self.logs/f'ntr-{time.time_ns()}.log'
+                    retry_delay=self._control_failure(e)
             finally:
                 self.tcp=None
                 if tcp: tcp.close()
-            self.stop.wait(3)
+            self._wait_to_retry(retry_delay)
 
     def close(self):
         self.stop.set()

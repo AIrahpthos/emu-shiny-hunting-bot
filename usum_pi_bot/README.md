@@ -67,6 +67,8 @@ The bot supervises its own feed. The Loopy helper restarts after unexpected exit
 
 A stalled feed is rejected when no fresh frame arrives within two seconds. The existing **Resume after capture crash** option can wait for fresh frames and retry an interrupted hunt with its baseline preserved. Automatic retry can discard an unseen shiny. If resumption is off, feed loss stops the hunt while capture continues reconnecting in the background.
 
+The NTR TCP control link and UDP video feed are monitored separately. A control timeout while fresh video is arriving keeps capture running, produces one warning, and retries control quietly. It does not count as a capture crash or restart a live stream. If video also stops, recovery becomes immediate.
+
 TCP reconnection does not prove that NTR video is flowing again. Detection resumes only after receiving fresh bottom frames. These mechanisms cannot reboot a crashed console or re-enable InputRedirection.
 
 **Retry failed attempts** permits up to three consecutive failed encounter attempts before stopping. A normal result clears the failure streak. No retry overrides an already measured suspected-shiny stop.
