@@ -1,61 +1,177 @@
-# Raspberry Pi real-hardware bot
+# Raspberry Pi user guide
 
-## Requirements and installation
+This version runs USUM soft-reset hunts on a real 3DS using Rosalina InputRedirection and a USB capture viewer. Raspberry Pi 4 is the primary supported setup. The capture installer supports ARM64 and ARM32; Pi 3 performance has not been established.
 
-Raspberry Pi 4 is the primary target. ARM64 and ARM32 capture downloads are supported; Pi 3 performance is not established. Use an X11 desktop, a Loopy capture board, a USB data cable and a modified 3DS with Rosalina InputRedirection. The Pi and 3DS must share a local network.
+## Requirements
 
-From this directory, as your normal user:
+- Raspberry Pi OS or a compatible Debian-based system with an **X11 desktop**. The tested setup uses Debian 13 and a Pi 4.
+- Loopy New 3DS capture board connected with a USB data cable.
+- A 3DS running Luma3DS, with Rosalina InputRedirection available.
+- Ultra Sun or Ultra Moon and a save at the encounter you want to hunt.
+- Pi and 3DS on the same local network.
+
+For a Pi without a monitor, set up the [headless VNC desktop](HEADLESS.md). You can install dependencies over SSH, but launch the viewer and bot from a terminal **inside the desktop or VNC session**.
+
+## Install
+
+Download and extract the repository, or clone it:
 
 ```bash
+git clone https://github.com/AIrahpthos/emu-shiny-hunting-bot.git
+cd emu-shiny-hunting-bot/usum_pi_bot
 bash Setup.sh
-bash Launch_capture.sh
-bash Launch.sh
 ```
 
-Setup installs Python/system dependencies, downloads pinned cc3dsfs 1.3.0.1, checks its SHA-256 and runs its USB rules installer from the correct directory. Reconnect the capture USB cable afterward. If the board still reports a permission error, check `lsusb`; the Loopy FT600 board used during development reports `0403:601e`.
+Run setup as your normal user, without putting `sudo` before it. It requests administrator access for system dependencies and USB permissions, creates a Python environment, and downloads a checksum-verified cc3dsfs release.
 
-For the headless iPad workflow, see [HEADLESS.md](HEADLESS.md). Desktop capture requires the windows to remain visible in the virtual desktop even when the VNC client disconnects.
+When setup finishes, unplug and reconnect the capture USB cable.
 
-## Screen and controls setup
+## Open the viewer and bot
 
-Start InputRedirection from Rosalina on the 3DS HOME Menu before launching USUM. Enter the console’s IP and use Test controls; verify the D-pad movement yourself because UDP has no connection acknowledgement.
-
-In cc3dsfs, use separate screen windows (S). The bot finds `cc3dsfs_bot…` automatically. Keep that window fully visible and unobstructed, close viewer menus and duplicate bottom viewers, and disable desktop blanking. On Screen setup, capture the whole patterned gradient visible **after loading the save**, before Rotom appears. No region selection is required.
-
-Save at your intended encounter and facing direction. Run with Repeat off first. Confirm the first encounter only once the Pokémon is visibly normal and the actual battle menu has appeared. The baseline is established afresh each run. The default shiny margin is 1.1 seconds above the fastest accepted normal timing; a sufficiently short timing is uncertain.
-
-## Ultra Beast mode
-
-Enable **Ultra Beast mode** and set **Screen changes to skip** to the number of extra cutscene transitions at the selected bottom-screen detection point. The initial dark screen is an anchor and does not count. After skipping N stable changes, the next change starts timing and the following change finishes it. Each transition requires three matching samples. The log shows skipped changes and timing start.
-
-Zero skips preserves ordinary detection. Disabling Ultra Beast mode ignores the saved count. A keeps tapping after forward movement throughout skipped changes and timing. STOP, timeout, capture loss and measurement completion cancel tapping and release controls. Check the count with Repeat off before unattended use.
-
-## Capture recovery and reporting
+From the `usum_pi_bot` directory in your desktop terminal:
 
 ```bash
 bash Capture_supervisor.sh
 ```
 
-The supervisor launches split capture windows at positions suitable for a 1280×800 desktop, disables audio, reconnects automatically, and restarts an exited viewer after three seconds. It keeps a separate stdout/stderr log and bot-log snapshot for each unexpected exit. An exit of zero is labelled a close/disconnect, not assumed to be a crash. Intentional supervisor shutdowns are excluded.
+The supervisor opens separate top and bottom capture windows and restarts the viewer if it exits. Leave this terminal running. In a second desktop terminal, run:
 
-The Recovery reports tab shows persistent counts and lets you export selected reports to a ZIP in `out/`. Nothing is uploaded automatically. `~/capture-viewer.log` points to the current viewer log. Closing the viewer while the supervisor runs causes it to restart.
+```bash
+bash Launch.sh
+```
 
-To resume an active hunt after viewer loss, enable **Resume after capture crash**. An interrupted encounter may be reset without knowing whether it was shiny. Frozen feeds and 3DS exception screens are not automatically repaired.
+For a viewer without automatic restart, use `bash Launch_capture.sh` instead of the supervisor. Do not run both at once.
 
-## Learned reset fallback
+Keep the bottom-screen window fully visible and unobstructed. Its title should begin with `cc3dsfs_bot`. Close viewer menus and duplicate bottom-screen windows, and disable desktop blanking. The supervisor uses a layout suited to a 1280×800 desktop.
 
-**Retry failed attempts** records confirmed gradient timings and A-tap counts. After at least ten successes it can use conservative learned limits to try an encounter when the gradient was missed. Inferred loads do not train those limits. Three consecutive attempt failures stop the hunt; a normal result clears the failure streak. Retrying an unclassified encounter can discard an unseen shiny, so this option defaults off.
+## Set up your first hunt
 
-## Existing installation and data
+### 1. Connect the controls
 
-This repository contains the latest complete source, rather than a chain of update ZIPs. To move an existing installation, stop it, install dependencies in the new directory, and copy `settings.json`, `references/` and `out/` from the old directory. Rerun capture setup because executable paths are installation-specific. Reconfigure startup to launch only one installation.
+On the 3DS HOME Menu, open Rosalina and start **InputRedirection**, then launch USUM. Enter the console's IPv4 address in **3DS IP**.
 
-Private settings, captures, logs, save-gradient references and downloaded binaries are ignored by Git. Program updates do not require replacing those files.
+Click **Test controls (D-pad right)** and check that the console responds. This test sends a button press; it cannot confirm a network connection automatically. Return to your intended position afterward.
 
-## Tests
+### 2. Capture the loaded-save reference
+
+Save at the encounter position, facing the correct direction. Manually soft-reset and load the save. In the bot's **Screen setup** tab, click the capture button while the patterned bottom-screen gradient is visible **after the save has loaded, before Rotom appears**.
+
+The whole bottom screen is captured automatically. You do not need to select a small region. Capture this again if you change the viewer layout or it no longer recognises the loaded save reliably.
+
+### 3. Check the detector and movement
+
+On **Hunt**, select the bottom-screen viewer and click **Preview bottom screen**. The timing detector starts at the centre; clicking the preview selects a different detection point. Choose a point that follows the encounter's dark → change → change sequence without triggering on unrelated animation.
+
+Set **Forward hold seconds** to the movement needed to trigger the encounter, or `0` if no forward movement is needed. The bot presses A, moves forward for this duration, then continues tapping A while measuring the encounter.
+
+Leave **Repeat normal encounters automatically**, **Resume after capture crash**, and **Retry failed attempts** off for the first test. For encounters with extra cutscene transitions, configure [Ultra Beast mode](#ultra-beast-mode) first.
+
+### 4. Run a single-encounter test
+
+Click **Start**. The bot soft-resets, taps A until it recognises the loaded-save gradient, and triggers the encounter.
+
+At the first encounter, wait until the actual battle menu appears. If the Pokémon is visibly normal, click **Confirm first encounter is normal**. If it is shiny or you are unsure, press **STOP** instead. Never confirm a shiny as the normal baseline.
+
+With repeating off, the bot finishes this test without another reset. Check that the measured interval corresponds to the encounter introduction, rather than an earlier cutscene.
+
+### 5. Start repeating
+
+Enable **Repeat normal encounters automatically** and start a new run. Confirm its first normal encounter again; each run establishes a fresh baseline.
+
+Later normal encounters are reset automatically. A suspected shiny or uncertain result stops the hunt for inspection. Use **STOP** at any time to cancel and release controls.
+
+## Hunt settings
+
+| Setting | Purpose |
+| --- | --- |
+| **Shiny extra seconds** | Additional introduction time above the normal baseline that triggers a suspected-shiny stop. Default: `1.1` seconds. |
+| **Forward hold seconds** | How long to walk forward after loading the save. Range: `0`–`5` seconds. |
+| **Repeat normal encounters automatically** | Continue resetting after normal results. Leave off when testing a new hunt. |
+| **Ultra Beast mode** / **Screen changes to skip** | Ignore extra bottom-screen transitions before timing the encounter. |
+| **Resume after capture crash** | Wait for a replacement viewer, then retry an interrupted active hunt with its existing baseline. |
+| **Retry failed attempts** | Use learned reset timing when the gradient is missed, and retry detection failures. |
+
+The baseline follows the fastest accepted normal interval. The measured interval is **between two bottom-screen changes**, not the entire time from black screen to gaining control. Timing alone does not prove shininess; inspect stopped encounters yourself.
+
+## Ultra Beast mode
+
+Some Ultra Beast entrances change the bottom screen before the actual encounter begins. Enable **Ultra Beast mode** and set **Screen changes to skip** to the number of extra transitions seen at your detection point.
+
+The initial dark screen does not count. After skipping the configured number of changes, the next change starts timing and the following change ends it. The console log reports skipped changes and the timing start.
+
+Use an integer from `0` to `20`. A count of `0` uses ordinary timing; disabling Ultra Beast mode ignores the saved count. Check your setting with repeating off before unattended hunting. The bot continues tapping A through the cutscene and stops tapping when measurement finishes.
+
+## Recovery and saved reports
+
+### Capture viewer recovery
+
+The capture supervisor restarts an exited viewer after three seconds. This works independently of whether a hunt is running. To let an active hunt resume after losing the viewer, also enable **Resume after capture crash** in the bot.
+
+The bot releases controls and waits up to two minutes for the bottom-screen window to return. It then retries the attempt. **An interrupted encounter may be reset without knowing whether it was shiny.** A viewer restart does not restart a stopped hunt or bypass its first-normal confirmation.
+
+The supervisor detects process exits, not every frozen feed. It cannot reboot a crashed 3DS or enable InputRedirection after a console reboot.
+
+### Failed-attempt retries
+
+With **Retry failed attempts** enabled, the bot can try an encounter when it appears to have missed the loaded-save gradient. It needs at least ten successfully observed resets before using learned time and A-tap limits.
+
+Three consecutive attempt failures stop the hunt; a confirmed normal encounter clears that streak. This option can also reset an unclassified encounter, so leave it off unless you accept that tradeoff.
+
+### Review and export incidents
+
+The **Recovery reports** tab keeps viewer-interruption counts across bot restarts. Select incidents and click **Save selected reports as ZIP**. With nothing selected, the latest 100 incidents are exported. The ZIP contains viewer output, exit details, and recent bot-log output when available.
+
+Exports go into `out/`. **Mark all reviewed** clears the unreviewed indicator without deleting the logs. A report can represent a disconnect or manual viewer close; it does not always mean a software crash. Intentional supervisor shutdowns are excluded.
+
+## Files and logs
+
+All paths below are relative to `usum_pi_bot`, except those beginning with `~/`.
+
+| Location | Contents |
+| --- | --- |
+| `settings.json` | Saved connection and hunt settings |
+| `references/` | Loaded-save reference image |
+| `out/` | Bot logs, encounter screenshots, reset history and exported reports |
+| `out/capture-incidents/` | Individual viewer-run logs and incident records |
+| `~/capture-viewer.log` | Link to the current supervised viewer log |
+| `~/capture-supervisor.log` | Supervisor output when configured through Openbox autostart |
+
+“Observed reset #…” counts successful gradient observations for the current console/reference profile. It is not a count of confirmed normal encounters. Learned limits use only the latest 100 observations, while the observation counter continues increasing.
+
+## Start automatically at boot
+
+Follow [HEADLESS.md](HEADLESS.md) to start the desktop, capture supervisor and bot automatically. The bot window opens at startup; starting a hunt and confirming the first normal encounter remain manual steps.
+
+## Update an existing installation
+
+Stop the hunt and close the bot and capture supervisor before updating. Back up `settings.json`, `references/`, and `out/`.
+
+For a Git clone, run `git pull --ff-only` from the repository directory. For a downloaded ZIP, extract the new repository and copy those saved files into its `usum_pi_bot` directory. Run `bash Setup.sh` in the updated installation before launching it again.
+
+If the installation path changed, update desktop startup entries to point to the new directory and remove old entries. Keep only one bot and one capture supervisor running.
+
+## Troubleshooting
+
+| Problem | What to check |
+| --- | --- |
+| Bot says it needs X11 or a desktop | Launch from a desktop/VNC terminal. On Raspberry Pi OS, switch to X11 using the option shown by `Launch.sh`, then reboot. |
+| Capture viewer cannot find the device | Check the USB data cable, reconnect after setup, and run `lsusb`. The tested Loopy FT600 board reports `0403:601e`. For a permission error, rerun setup and reconnect. |
+| No bottom-screen window found | Use separate screens in cc3dsfs (`S`), check for a `cc3dsfs_bot` window, then click **Refresh windows**. |
+| Capture stops because the window is covered | Move other windows away, close viewer menus, and keep the entire bottom window on-screen. |
+| Controls do nothing | Check the 3DS IP and local network, and enable InputRedirection from HOME before launching the game. Verify the test press visually. |
+| Bot keeps tapping A after loading | Recapture the correct gradient after the save loads. Check that the viewer is displaying live, unobstructed video. |
+| Detector starts during a cutscene | Configure Ultra Beast mode and the skip count, then test one encounter. |
+| Viewer returns but the hunt stays stopped | Viewer restart and hunt resumption are separate. Check **Resume after capture crash** and the bot log. |
+| 3DS shows an exception or returns to HOME | Stop the bot and inspect the console. Capture recovery cannot repair a console crash. Save the 3DS crash dump if available. |
+
+When asking for help, include the relevant log and your OS, game/update version, viewer version and encounter configuration. Use **Recovery reports** for capture-viewer interruptions.
+
+## Development checks
+
+From this directory after setup:
 
 ```bash
 .venv/bin/python -m unittest discover -s tests -v
 ```
 
-51 tests pass in the development environment. Actual USB capture, console response and encounter timing must be checked on your hardware.
+Automated tests do not replace testing USB capture, controls and encounter timing on your hardware.
