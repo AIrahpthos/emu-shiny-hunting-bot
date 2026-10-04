@@ -96,6 +96,8 @@ class NtrCapture:
         self.threads=[]
         self.stream_requested=False
         self.control_warning=False
+        self.had_video=False
+        self.video_outage=False
 
     def emit(self, message):
         if self.log_path:
@@ -118,6 +120,7 @@ class NtrCapture:
         last_report=time.monotonic(); frames=0; last_frames=0; last_dropped=0
         while not self.stop.is_set():
             now=time.monotonic()
+            self._check_video_health(now)
             if now-last_report>=5:
                 self.emit(f'NTR bottom feed: {(frames-last_frames)/(now-last_report):.1f} FPS, {self.assembler.dropped-last_dropped} incomplete/invalid frames dropped in this interval.')
                 last_report=now; last_frames=frames; last_dropped=self.assembler.dropped
@@ -127,10 +130,36 @@ class NtrCapture:
                 image=self.assembler.push(data)
                 if image is not None:
                     self.store.publish(image); frames+=1
+                    self._video_arrived()
             except socket.timeout: continue
             except OSError:
-                if not self.stop.is_set(): self.emit('NTR video socket closed unexpectedly.')
+                if not self.stop.is_set():
+                    self.emit('NTR video socket closed unexpectedly.')
+                    self._record_video_outage('NTR video socket closed unexpectedly.')
                 return
+
+    def _video_arrived(self):
+        self.had_video=True
+        if self.video_outage:
+            self.emit('NTR bottom video restored.')
+            self.video_outage=False
+
+    def _record_video_outage(self, reason):
+        if not self.had_video or self.video_outage or self.stop.is_set(): return
+        self.video_outage=True
+        self.emit(reason)
+        if self.logs:
+            from viewer_reports import record_exit
+            with self.log_lock:
+                record_exit(self.logs, {'log_file':self.log_path.name,'returncode':-1,
+                            'reason':reason,'capture_source':'NTR wireless',
+                            'incident_kind':'video_loss'})
+                self.log_path=self.logs/f'ntr-{time.time_ns()}.log'
+
+    def _check_video_health(self, now=None):
+        now=time.monotonic() if now is None else now
+        if now-self.assembler.last_completion>self.store.stale_seconds:
+            self._record_video_outage('NTR bottom video stalled: no fresh frames for two seconds.')
 
     def _feed_live(self):
         from capture_linux import ViewerUnavailable
@@ -148,12 +177,6 @@ class NtrCapture:
                 self.control_warning=True
             return 30
         self.emit(f'NTR control unavailable and no fresh video: {error}. Retrying in 3 seconds.')
-        if self.logs:
-            from viewer_reports import record_exit
-            with self.log_lock:
-                record_exit(self.logs, {'log_file':self.log_path.name,'returncode':-1,
-                            'reason':str(error),'capture_source':'NTR wireless'})
-                self.log_path=self.logs/f'ntr-{time.time_ns()}.log'
         return 3
 
     def _wait_to_retry(self, delay):

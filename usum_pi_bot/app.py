@@ -14,7 +14,7 @@ from core import Controller, Stopped, EncounterStartTimeout, measure, classify, 
 from navigation import ColourDetector, load_save
 from ntr_support import SOURCES
 from reset_stats import ResetStats
-from viewer_reports import read_reports, export_reports
+from viewer_reports import read_reports, export_reports, is_capture_interruption
 
 ROOT = Path(__file__).resolve().parent
 OUT = ROOT / 'out'
@@ -26,7 +26,7 @@ class App:
         self.root = root
         root.title('USUM Pi Shiny Hunter — integrated capture')
         root.geometry('780x750+10+10')
-        self.capture_service=CaptureService(ROOT,self.emit)
+        self.capture_service=CaptureService(ROOT,self.emit_capture)
         self.preview_sequence=0
         self.capture_connect_thread=None
         self.stop = threading.Event()
@@ -43,7 +43,8 @@ class App:
         self.report_check_time=0
         self.report_export_thread=None
         try:
-            self.report_ack_count=max(0,int(json.loads((OUT/'capture-report-ack.json').read_text()).get('count',0)))
+            ack=json.loads((OUT/'capture-report-ack.json').read_text())
+            self.report_ack_count=max(0,int(ack.get('count',0))) if ack.get('counter_version')==2 else 0
         except (OSError,ValueError,TypeError,AttributeError):
             self.report_ack_count=0
         try:
@@ -56,16 +57,24 @@ class App:
         setup = ttk.Frame(tabs,padding=12)
         tabs.add(frame,text='Hunt')
         tabs.add(setup,text='Screen setup')
+        capture_diagnostics=ttk.Frame(tabs,padding=12)
+        tabs.add(capture_diagnostics,text='Capture diagnostics')
+        ttk.Label(capture_diagnostics,text='Connection messages, stream statistics and console diagnostics.\nThese do not change the hunt result or count as interruptions by themselves.',wraplength=730).pack(anchor='w',pady=6)
+        capture_scroll=ttk.Scrollbar(capture_diagnostics)
+        capture_scroll.pack(side='right',fill='y')
+        self.capture_log=tk.Text(capture_diagnostics,state='disabled',wrap='word',yscrollcommand=capture_scroll.set)
+        self.capture_log.pack(fill='both',expand=True)
+        capture_scroll.configure(command=self.capture_log.yview)
         reports=ttk.Frame(tabs,padding=12)
         tabs.add(reports,text='Recovery reports')
         self.tabs=tabs
         self.reports_tab=reports
         self.report_summary=tk.StringVar(value='Capture interruptions: 0')
         ttk.Label(reports,textvariable=self.report_summary,wraplength=710,font=('Segoe UI',12)).pack(anchor='w',pady=8)
-        ttk.Label(reports,text='Saved across bot restarts. Exit 0 can mean a disconnect or manual close.\nIntentional desktop shutdowns are excluded. Showing the latest 200 interruptions.',wraplength=710).pack(anchor='w',pady=6)
+        ttk.Label(reports,text='Saved across bot restarts. NTR reports count video outages, not control retries.\nIntentional desktop shutdowns are excluded. Showing the latest 200 interruptions.',wraplength=710).pack(anchor='w',pady=6)
         report_list=ttk.Frame(reports); report_list.pack(fill='both',expand=True,pady=8)
         self.report_tree=ttk.Treeview(report_list,columns=('time','reason'),show='headings',selectmode='extended')
-        self.report_tree.heading('time',text='Time'); self.report_tree.heading('reason',text='Viewer exit / restart reason')
+        self.report_tree.heading('time',text='Time'); self.report_tree.heading('reason',text='Capture interruption')
         self.report_tree.column('time',width=230,stretch=False); self.report_tree.column('reason',width=440)
         report_scroll=ttk.Scrollbar(report_list,orient='vertical',command=self.report_tree.yview)
         self.report_tree.configure(yscrollcommand=report_scroll.set)
@@ -171,7 +180,7 @@ class App:
             stat=index.stat() if index.exists() else None
             signature=(stat.st_mtime_ns,stat.st_size) if stat else None
             if signature!=self.report_signature or not hasattr(self,'reports_loaded'):
-                records=read_reports(folder)
+                records=[record for record in read_reports(folder) if is_capture_interruption(record)]
                 self.capture_reports=records
                 self.report_signature=signature
                 self.reports_loaded=True
@@ -189,7 +198,7 @@ class App:
     def acknowledge_reports(self):
         self.refresh_reports()
         try:
-            (OUT/'capture-report-ack.json').write_text(json.dumps({'count':len(self.capture_reports)}))
+            (OUT/'capture-report-ack.json').write_text(json.dumps({'count':len(self.capture_reports),'counter_version':2}))
             self.report_ack_count=len(self.capture_reports)
             self.refresh_reports()
         except OSError as e:
@@ -310,6 +319,8 @@ class App:
             self.status.set(f'Detection point selected: {self.point[0]:.0%} across, {self.point[1]:.0%} down.')
 
     def emit(self,text): self.events.put(('log',text))
+
+    def emit_capture(self,text): self.events.put(('capture_log',text))
 
     def start(self,mode):
         if self.worker and self.worker.is_alive(): return
@@ -496,6 +507,12 @@ class App:
                 self.status.set(value)
                 self.log.configure(state='normal'); self.log.insert('end',text+'\n'); self.log.see('end'); self.log.configure(state='disabled')
                 with (OUT/'events.log').open('a',encoding='utf-8') as f: f.write(text+'\n')
+            elif kind=='capture_log':
+                self.capture_log.configure(state='normal')
+                self.capture_log.insert('end',f'{time.strftime("%H:%M:%S")}  {value}\n')
+                lines=int(self.capture_log.index('end-1c').split('.')[0])
+                if lines>500: self.capture_log.delete('1.0',f'{lines-500}.0')
+                self.capture_log.see('end'); self.capture_log.configure(state='disabled')
             elif kind=='baseline':
                 self.pending_baseline=value; self.confirm_button.configure(state='normal')
             elif kind=='confirmed':

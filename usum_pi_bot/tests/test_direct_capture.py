@@ -222,7 +222,7 @@ time.sleep(10)
                     backend.start();store.next(timeout=7)
                     self.assertEqual(len(requests),2)
                     self.assertEqual(requests[0][4:11],requests[1][4:11])
-                    self.assertEqual(len(read_reports(Path(tmp)/'logs')),1)
+                    self.assertEqual(len(read_reports(Path(tmp)/'logs')),0)
                     stop.set();backend.close()
             finally:
                 stop.set();backend.close();server.close();thread.join(3)
@@ -240,12 +240,12 @@ class NtrControlHealthTests(unittest.TestCase):
             backend._control_failure(socket.timeout('timed out'))
             self.assertEqual(len(messages),1)
 
-    def test_control_failure_without_video_remains_reported(self):
+    def test_control_failure_before_first_video_is_not_an_interruption(self):
         from viewer_reports import read_reports
         with tempfile.TemporaryDirectory() as tmp:
             store=FrameStore();backend=NtrCapture(store,'10.0.0.106',logs=Path(tmp))
             self.assertEqual(backend._control_failure(ConnectionError('closed')),3)
-            self.assertEqual(len(read_reports(tmp)),1)
+            self.assertEqual(len(read_reports(tmp)),0)
             with self.assertRaises(ViewerUnavailable):store.latest()
 
     def test_reconnect_does_not_restart_a_live_previously_requested_stream(self):
@@ -269,3 +269,49 @@ class NtrControlHealthTests(unittest.TestCase):
         with patch.object(backend.stop,'wait') as wait:
             backend._wait_to_retry(30)
         wait.assert_not_called()
+
+class NtrOutageReportingTests(unittest.TestCase):
+    def test_only_one_report_per_established_video_outage(self):
+        from viewer_reports import read_reports, is_capture_interruption
+        with tempfile.TemporaryDirectory() as tmp:
+            backend=NtrCapture(FrameStore(),'10.0.0.106',logs=Path(tmp))
+            # Startup control failures and a never-connected feed are not outages.
+            backend._check_video_health(now=10)
+            self.assertEqual(read_reports(tmp),[])
+            backend.assembler.last_completion=10;backend._video_arrived()
+            backend._check_video_health(now=11)
+            self.assertEqual(read_reports(tmp),[])
+            backend._check_video_health(now=13)
+            backend._check_video_health(now=14)
+            for _ in range(3):backend._control_failure(TimeoutError('timed out'))
+            reports=read_reports(tmp)
+            self.assertEqual(len(reports),1)
+            self.assertTrue(is_capture_interruption(reports[0]))
+            self.assertEqual(reports[0]['incident_kind'],'video_loss')
+            # A new report requires video to have returned, then been lost again.
+            backend.assembler.last_completion=20;backend._video_arrived()
+            backend._check_video_health(now=23)
+            self.assertEqual(len(read_reports(tmp)),2)
+
+    def test_intentional_shutdown_is_not_reported(self):
+        from viewer_reports import read_reports
+        with tempfile.TemporaryDirectory() as tmp:
+            backend=NtrCapture(FrameStore(),'10.0.0.106',logs=Path(tmp))
+            backend._video_arrived();backend.stop.set()
+            backend._check_video_health(now=10)
+            self.assertEqual(read_reports(tmp),[])
+
+    def test_legacy_tcp_reports_are_retained_but_not_counted(self):
+        from viewer_reports import is_capture_interruption
+        legacy={'capture_source':'NTR wireless','reason':'timed out'}
+        self.assertFalse(is_capture_interruption(legacy))
+        self.assertTrue(is_capture_interruption({**legacy,'incident_kind':'video_loss'}))
+        self.assertTrue(is_capture_interruption({'capture_source':'Loopy USB','reason':'exit 7'}))
+
+    def test_capture_messages_use_separate_ui_event(self):
+        from app import App
+        from queue import Queue
+        app=object.__new__(App);app.events=Queue()
+        app.emit_capture('Connected');app.emit('Encounter timing started')
+        self.assertEqual(app.events.get(),('capture_log','Connected'))
+        self.assertEqual(app.events.get(),('log','Encounter timing started'))
