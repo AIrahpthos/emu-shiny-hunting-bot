@@ -2,7 +2,7 @@
 
 Run basic USUM soft-reset hunts on a real 3DS using Rosalina InputRedirection and the Loopy capture viewer.
 
-This version does not include continuous encounter A tapping, Ultra Beast transition skipping, automatic capture recovery, or saved viewer incident reports. Use the [Pi version](../usum_pi_bot/README.md) if you need those features.
+This version does not include continuous encounter A tapping, optional screen-transition skipping, automatic capture recovery, or saved viewer incident reports. Use the [Pi version](../usum_pi_bot/README.md) if you need those features.
 
 ## Requirements and installation
 
@@ -32,7 +32,7 @@ The bot soft-resets with L + R + START, taps A until it recognises the loaded-sa
 
 **Shiny extra seconds** defaults to `1.1` seconds above the normal baseline. Normal results can reset automatically; suspected shinies and uncertain results stop for inspection. This measures the interval between two screen changes, not the entire encounter animation.
 
-Timing is an indication, not proof of shininess. Test every new encounter configuration. This version does not keep tapping A during the encounter or skip extra cutscene transitions, so some Ultra Beast entrances require the Pi version.
+Timing is an indication, not proof of shininess. Test every new encounter configuration. This version does not keep tapping A during the encounter. The Pi version also has an optional transition-skipping workaround named Ultra Beast mode, but it is not normally needed for Ultra Beast hunts.
 
 Press **STOP** to cancel and release controls. If a network or computer fault leaves a control held, disable InputRedirection on the 3DS. The bot does not catch Pokémon automatically.
 
@@ -50,7 +50,7 @@ Before updating, stop the bot and back up those files. For a new repository down
 | Bottom window is missing | Check its title prefix, use separate viewer windows, close duplicates, and refresh the window list. |
 | Controls do nothing | Check the console IP and local network; enable InputRedirection on HOME before opening the game. |
 | Bot does not recognise the loaded save | Recapture the gradient after the save loads, with the bottom viewer unobstructed. |
-| Encounter timing is wrong | Check the detection point and test a single encounter. Extra cutscene transitions are not supported by this version. |
+| Encounter timing is wrong | Check the detection point and test a single encounter. Also check that the capture feed is working correctly. |
 | Viewer or 3DS crashes | Stop the hunt and restore the viewer or console manually. This version has no automatic recovery. |
 
 When reporting an issue, include your game/update version, viewer version, encounter settings and relevant `out/` log.

@@ -8,8 +8,8 @@ It resets after normal encounters and stops when encounter timing suggests a shi
 
 | Setup | Guide | Available features |
 | --- | --- | --- |
-| Raspberry Pi / Linux with X11 | [Pi installation and user guide](usum_pi_bot/README.md) | Save-load detection, encounter A tapping, Ultra Beast cutscene handling, optional retries, viewer recovery and saved incident reports |
-| Windows | [Windows installation and user guide](usum_hardware_bot/README.md) | Save-load detection and basic encounter timing; does not include the Pi recovery or Ultra Beast features |
+| Raspberry Pi / Linux with X11 | [Pi installation and user guide](usum_pi_bot/README.md) | Save-load detection, encounter A tapping, optional screen-transition skipping, retries, viewer recovery and saved incident reports |
+| Windows | [Windows installation and user guide](usum_hardware_bot/README.md) | Save-load detection and basic encounter timing; does not include the Pi recovery or transition-skipping features |
 | Emulator | [Original emulator instructions](README.emulator.md) | Damon's original emulator bot |
 
 **The Raspberry Pi version is the most complete hardware version.** Raspberry Pi 4 with a Loopy New 3DS capture board is the tested setup. For operation without a monitor, follow the [headless desktop guide](usum_pi_bot/HEADLESS.md); you can control the desktop from an iPad over VNC.

@@ -64,7 +64,7 @@ On **Hunt**, select the bottom-screen viewer and click **Preview bottom screen**
 
 Set **Forward hold seconds** to the movement needed to trigger the encounter, or `0` if no forward movement is needed. The bot presses A, moves forward for this duration, then continues tapping A while measuring the encounter.
 
-Leave **Repeat normal encounters automatically**, **Resume after capture crash**, and **Retry failed attempts** off for the first test. For encounters with extra cutscene transitions, configure [Ultra Beast mode](#ultra-beast-mode) first.
+Leave **Repeat normal encounters automatically**, **Resume after capture crash**, and **Retry failed attempts** off for the first test. Leave **Ultra Beast mode** off as well; it is not needed for ordinary use, including Ultra Beast hunts.
 
 ### 4. Run a single-encounter test
 
@@ -87,7 +87,7 @@ Later normal encounters are reset automatically. A suspected shiny or uncertain 
 | **Shiny extra seconds** | Additional introduction time above the normal baseline that triggers a suspected-shiny stop. Default: `1.1` seconds. |
 | **Forward hold seconds** | How long to walk forward after loading the save. Range: `0`–`5` seconds. |
 | **Repeat normal encounters automatically** | Continue resetting after normal results. Leave off when testing a new hunt. |
-| **Ultra Beast mode** / **Screen changes to skip** | Ignore extra bottom-screen transitions before timing the encounter. |
+| **Ultra Beast mode** / **Screen changes to skip** | Optional transition-skipping workaround; leave disabled for ordinary use. |
 | **Resume after capture crash** | Wait for a replacement viewer, then retry an interrupted active hunt with its existing baseline. |
 | **Retry failed attempts** | Use learned reset timing when the gradient is missed, and retry detection failures. |
 
@@ -95,11 +95,9 @@ The baseline follows the fastest accepted normal interval. The measured interval
 
 ## Ultra Beast mode
 
-Some Ultra Beast entrances change the bottom screen before the actual encounter begins. Enable **Ultra Beast mode** and set **Screen changes to skip** to the number of extra transitions seen at your detection point.
+**Leave this disabled, including when hunting Ultra Beasts.** It was added to work around apparent extra bottom-screen changes during encounters, which appear to have been caused by a capture issue rather than the encounters themselves.
 
-The initial dark screen does not count. After skipping the configured number of changes, the next change starts timing and the following change ends it. The console log reports skipped changes and the timing start.
-
-Use an integer from `0` to `20`. A count of `0` uses ordinary timing; disabling Ultra Beast mode ignores the saved count. Check your setting with repeating off before unattended hunting. The bot continues tapping A through the cutscene and stops tapping when measurement finishes.
+The option remains available in case it proves useful. When enabled, **Screen changes to skip** ignores the specified number of bottom-screen changes after the initial dark screen, before starting the normal timing check. The initial dark screen does not count. Valid values are `0`–`20`; disabling the mode ignores the saved count.
 
 ## Recovery and saved reports
 
@@ -160,7 +158,7 @@ If the installation path changed, update desktop startup entries to point to the
 | Capture stops because the window is covered | Move other windows away, close viewer menus, and keep the entire bottom window on-screen. |
 | Controls do nothing | Check the 3DS IP and local network, and enable InputRedirection from HOME before launching the game. Verify the test press visually. |
 | Bot keeps tapping A after loading | Recapture the correct gradient after the save loads. Check that the viewer is displaying live, unobstructed video. |
-| Detector starts during a cutscene | Configure Ultra Beast mode and the skip count, then test one encounter. |
+| Detector starts too early | Check the live capture feed and detection point, then test one encounter. Ultra Beast mode is an optional workaround, not a required hunt setting. |
 | Viewer returns but the hunt stays stopped | Viewer restart and hunt resumption are separate. Check **Resume after capture crash** and the bot log. |
 | 3DS shows an exception or returns to HOME | Stop the bot and inspect the console. Capture recovery cannot repair a console crash. Save the 3DS crash dump if available. |
 
