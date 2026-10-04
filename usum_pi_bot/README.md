@@ -1,11 +1,11 @@
 # Raspberry Pi user guide
 
-This version runs USUM soft-reset hunts on a real 3DS using Rosalina InputRedirection and a USB capture viewer. Raspberry Pi 4 is the primary supported setup. The capture installer supports ARM64 and ARM32; Pi 3 performance has not been established.
+This version runs USUM soft-reset hunts on a real 3DS using Rosalina InputRedirection and either a Loopy USB viewer or NTR wireless streaming. Raspberry Pi 4 is the primary supported setup. The capture installer supports ARM64 and ARM32; Pi 3 performance has not been established.
 
 ## Requirements
 
 - Raspberry Pi OS or a compatible Debian-based system with an **X11 desktop**. The tested setup uses Debian 13 and a Pi 4.
-- Loopy New 3DS capture board connected with a USB data cable.
+- Either a Loopy New 3DS capture board connected with a USB data cable, or NTR running on the 3DS and NTRViewer-HR on the Pi. The wireless viewer instructions below require a 64-bit OS.
 - A 3DS running Luma3DS, with Rosalina InputRedirection available.
 - Ultra Sun or Ultra Moon and a save at the encounter you want to hunt.
 - Pi and 3DS on the same local network.
@@ -34,7 +34,7 @@ From the `usum_pi_bot` directory in your desktop terminal:
 bash Capture_supervisor.sh
 ```
 
-The supervisor opens separate top and bottom capture windows and restarts the viewer if it exits. Leave this terminal running. In a second desktop terminal, run:
+In the default Loopy USB mode, the supervisor opens separate top and bottom capture windows and restarts the viewer if it exits. Leave this terminal running. In a second desktop terminal, run:
 
 ```bash
 bash Launch.sh
@@ -44,6 +44,26 @@ For a viewer without automatic restart, use `bash Launch_capture.sh` instead of 
 
 Keep the bottom-screen window fully visible and unobstructed. Its title should begin with `cc3dsfs_bot`. Close viewer menus and duplicate bottom-screen windows, and disable desktop blanking. The supervisor uses a layout suited to a 1280×800 desktop.
 
+## Use NTR wireless capture
+
+Install the bot with Setup above, then install the ARM64 viewer:
+
+```bash
+mkdir -p ~/ntr-viewer
+cd ~/ntr-viewer
+wget https://github.com/xzn/ntrviewer-hr/releases/download/v0.3.8.0/NTRViewer-HR-Linux-arm64.tar.gz
+tar -xzf NTRViewer-HR-Linux-arm64.tar.gz
+SDL_VIDEODRIVER=x11 ./NTRViewer-HR-Linux-arm64/ntrviewer
+```
+
+Run this from the desktop/VNC terminal. Start NTR on the 3DS, enter its IP in the viewer and connect. For legacy NTR, use JPEG compatibility mode. Set **Bottom Only**, disable top-screen prioritisation and adjust bandwidth until the bottom feed is stable. Hide viewer settings, then click **Fit NTR bottom screen** in the bot. Configure Bottom Only before fitting the window.
+
+Select **NTR wireless** in the bot. Close duplicate NTR viewer windows and keep the bottom feed unobstructed. The fit button places it in the upper-right slot of a 1280×800 desktop. **Keep Loopy bottom viewer open in NTR mode** preserves the USB bottom feed below it; disable this if no USB board is connected.
+
+The supervisor reads the saved source when it starts. After changing sources, stop the hunt and restart the supervisor or desktop to apply its viewer selection. Do not start another copy of a viewer already managed by the supervisor.
+
+**NTR connection settings still need manual entry after the viewer reopens.** The supervisor can restart its process, but cannot reconnect wireless video unattended. Use USB capture for recovery that does not need this viewer setup step.
+
 ## Set up your first hunt
 
 ### 1. Connect the controls
@@ -52,11 +72,13 @@ On the 3DS HOME Menu, open Rosalina and start **InputRedirection**, then launch 
 
 Click **Test controls (D-pad right)** and check that the console responds. This test sends a button press; it cannot confirm a network connection automatically. Return to your intended position afterward.
 
-### 2. Capture the loaded-save reference
+### 2. Select the capture source
 
-Save at the encounter position, facing the correct direction. Manually soft-reset and load the save. In the bot's **Screen setup** tab, click the capture button while the patterned bottom-screen gradient is visible **after the save has loaded, before Rotom appears**.
+Save at the encounter position, facing the correct direction. Select **Loopy USB** or **NTR wireless** on Hunt. Keep the matching bottom-screen viewer visible. No screenshot calibration is required.
 
-The whole bottom screen is captured automatically. You do not need to select a small region. Capture this again if you change the viewer layout or it no longer recognises the loaded save reliably.
+During loading, the bot taps A and watches for **majority blue → black → red**, such as Rotom appearing after the save loads. Colours can move around the screen; their positions do not need to match an image. Each state requires three consecutive observations.
+
+On **Screen setup**, **Checks per second** offers 10, 30 or 60 Hz, with 30 Hz as the default. The actual sampling rate depends on capture speed and does not increase the wireless stream frame rate. **Try encounter after seconds** defaults to 16: if the sequence was missed, the bot stops startup tapping and tries the encounter anyway. The encounter detector must then validate the attempt.
 
 ### 3. Check the detector and movement
 
@@ -68,7 +90,7 @@ Leave **Repeat normal encounters automatically**, **Resume after capture crash**
 
 ### 4. Run a single-encounter test
 
-Click **Start**. The bot soft-resets, taps A until it recognises the loaded-save gradient, and triggers the encounter.
+Click **Start**. The bot soft-resets, taps A until it recognises the loading colour sequence, and triggers the encounter.
 
 At the first encounter, wait until the actual battle menu appears. If the Pokémon is visibly normal, click **Confirm first encounter is normal**. If it is shiny or you are unsure, press **STOP** instead. Never confirm a shiny as the normal baseline.
 
@@ -89,7 +111,7 @@ Later normal encounters are reset automatically. A suspected shiny or uncertain 
 | **Repeat normal encounters automatically** | Continue resetting after normal results. Leave off when testing a new hunt. |
 | **Ultra Beast mode** / **Screen changes to skip** | Optional transition-skipping workaround; leave disabled for ordinary use. |
 | **Resume after capture crash** | Wait for a replacement viewer, then retry an interrupted active hunt with its existing baseline. |
-| **Retry failed attempts** | Use learned reset timing when the gradient is missed, and retry detection failures. |
+| **Retry failed attempts** | Soft-reset after an encounter detection failure; stop after three consecutive failures. |
 
 The baseline follows the fastest accepted normal interval. The measured interval is **between two bottom-screen changes**, not the entire time from black screen to gaining control. Timing alone does not prove shininess; inspect stopped encounters yourself.
 
@@ -105,13 +127,13 @@ The option remains available in case it proves useful. When enabled, **Screen ch
 
 The capture supervisor restarts an exited viewer after three seconds. This works independently of whether a hunt is running. To let an active hunt resume after losing the viewer, also enable **Resume after capture crash** in the bot.
 
-The bot releases controls and waits up to two minutes for the bottom-screen window to return. It then retries the attempt. **An interrupted encounter may be reset without knowing whether it was shiny.** A viewer restart does not restart a stopped hunt or bypass its first-normal confirmation.
+The bot releases controls and waits up to two minutes for the bottom-screen window to return. It then retries the attempt. For NTR, reconnect the replacement viewer and restore Bottom Only before allowing the hunt to resume. **An interrupted encounter may be reset without knowing whether it was shiny.** A viewer restart does not restart a stopped hunt or bypass its first-normal confirmation.
 
 The supervisor detects process exits, not every frozen feed. It cannot reboot a crashed 3DS or enable InputRedirection after a console reboot.
 
 ### Failed-attempt retries
 
-With **Retry failed attempts** enabled, the bot can try an encounter when it appears to have missed the loaded-save gradient. It needs at least ten successfully observed resets before using learned time and A-tap limits.
+The loading timer tries an encounter after its configured limit even when **Retry failed attempts** is off. With retries off, a failed encounter check stops the hunt. With retries enabled, it soft-resets and tries again.
 
 Three consecutive attempt failures stop the hunt; a confirmed normal encounter clears that streak. This option can also reset an unclassified encounter, so leave it off unless you accept that tradeoff.
 
@@ -128,13 +150,12 @@ All paths below are relative to `usum_pi_bot`, except those beginning with `~/`.
 | Location | Contents |
 | --- | --- |
 | `settings.json` | Saved connection and hunt settings |
-| `references/` | Loaded-save reference image |
 | `out/` | Bot logs, encounter screenshots, reset history and exported reports |
 | `out/capture-incidents/` | Individual viewer-run logs and incident records |
 | `~/capture-viewer.log` | Link to the current supervised viewer log |
 | `~/capture-supervisor.log` | Supervisor output when configured through Openbox autostart |
 
-“Observed reset #…” counts successful gradient observations for the current console/reference profile. It is not a count of confirmed normal encounters. Learned limits use only the latest 100 observations, while the observation counter continues increasing.
+“Observed reset #…” counts successful colour-sequence observations for the current console/capture profile. It is not a count of confirmed normal encounters. Statistics retain the latest 100 observations, while the observation counter continues increasing. Timer fallback attempts do not increase this count.
 
 ## Start automatically at boot
 
@@ -142,7 +163,7 @@ Follow [HEADLESS.md](HEADLESS.md) to start the desktop, capture supervisor and b
 
 ## Update an existing installation
 
-Stop the hunt and close the bot and capture supervisor before updating. Back up `settings.json`, `references/`, and `out/`.
+Stop the hunt and close the bot and capture supervisor before updating. Back up `settings.json` and `out/`. Old reference folders can remain, but the Pi bot no longer uses them.
 
 For a Git clone, run `git pull --ff-only` from the repository directory. For a downloaded ZIP, extract the new repository and copy those saved files into its `usum_pi_bot` directory. Run `bash Setup.sh` in the updated installation before launching it again.
 
@@ -157,7 +178,7 @@ If the installation path changed, update desktop startup entries to point to the
 | No bottom-screen window found | Use separate screens in cc3dsfs (`S`), check for a `cc3dsfs_bot` window, then click **Refresh windows**. |
 | Capture stops because the window is covered | Move other windows away, close viewer menus, and keep the entire bottom window on-screen. |
 | Controls do nothing | Check the 3DS IP and local network, and enable InputRedirection from HOME before launching the game. Verify the test press visually. |
-| Bot keeps tapping A after loading | Recapture the correct gradient after the save loads. Check that the viewer is displaying live, unobstructed video. |
+| Bot keeps tapping A after loading | Check the colour percentages in the log and that the selected viewer is live and unobstructed. The loading timer should end startup tapping if the sequence is missed. |
 | Detector starts too early | Check the live capture feed and detection point, then test one encounter. Ultra Beast mode is an optional workaround, not a required hunt setting. |
 | Viewer returns but the hunt stays stopped | Viewer restart and hunt resumption are separate. Check **Resume after capture crash** and the bot log. |
 | 3DS shows an exception or returns to HOME | Stop the bot and inspect the console. Capture recovery cannot repair a console crash. Save the 3DS crash dump if available. |

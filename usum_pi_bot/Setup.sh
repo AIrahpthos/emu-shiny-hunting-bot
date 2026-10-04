@@ -7,7 +7,7 @@ if [[ $(id -u) -eq 0 ]]; then
 fi
 printf 'Installing desktop and capture dependencies...\n'
 sudo apt-get update
-sudo apt-get install -y python3 python3-venv python3-tk libusb-1.0-0 libudev1 \
+sudo apt-get install -y python3 python3-venv python3-tk wmctrl libusb-1.0-0 libudev1 \
   libgl1 libxrandr2 libxcursor1 libxi6 libfreetype6 libharfbuzz0b \
   libflac-dev libvorbis0a libvorbisenc2 libogg0 libopenal1 libasound2-dev libgpiod-dev
 python3 -m venv .venv

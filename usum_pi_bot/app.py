@@ -10,16 +10,14 @@ from PIL import Image, ImageTk, ImageStat
 from capture_linux import Capture, Desktop, ViewerUnavailable
 from recovery import wait_for_capture
 from core import Controller, Stopped, EncounterStartTimeout, measure, classify, choose_bottom_window, BOTTOM_WINDOW_PREFIX, trigger_encounter
-from navigation import References, STAGES, LABELS, load_save
+from navigation import ColourDetector, load_save
+from ntr_support import SOURCES, choose_viewer, position_ntr
 from reset_stats import ResetStats
-import hashlib
 from viewer_reports import read_reports, export_reports
 
 ROOT = Path(__file__).resolve().parent
 OUT = ROOT / 'out'
 OUT.mkdir(exist_ok=True)
-REFS = ROOT / 'references'
-REFS.mkdir(exist_ok=True)
 
 
 class App:
@@ -77,13 +75,26 @@ class App:
         ttk.Label(reports,textvariable=self.report_export_status,wraplength=710).pack(anchor='w',pady=8)
         ttk.Label(frame, text='USUM static encounters on a real 3DS', font=('Segoe UI',16)).pack(anchor='w')
         ttk.Button(frame,textvariable=self.report_summary,command=lambda:self.tabs.select(self.reports_tab)).pack(anchor='w',pady=4)
-        ttk.Label(frame, text='Keep the bottom-screen viewer visible. Start from a saved encounter position.').pack(anchor='w', pady=5)
+        ttk.Label(frame, text='Keep the bottom viewer visible. For NTR, choose Bottom Only, hide settings and fit.').pack(anchor='w', pady=5)
         row = ttk.Frame(frame); row.pack(fill='x', pady=5)
         ttk.Label(row,text='3DS IP:').pack(side='left')
         self.ip = tk.StringVar(value=saved.get('ip',''))
         ttk.Entry(row,textvariable=self.ip,width=20).pack(side='left',padx=8)
         self.test_button = ttk.Button(row,text='Test controls (D-pad right)',command=lambda:self.start('test'))
         self.test_button.pack(side='left')
+        row = ttk.Frame(frame); row.pack(fill='x', pady=3)
+        ttk.Label(row,text='Capture source:').pack(side='left')
+        self.capture_source=tk.StringVar(value=saved.get('capture_source','Loopy USB'))
+        self.source_entry=ttk.Combobox(row,textvariable=self.capture_source,values=SOURCES,state='readonly',width=16)
+        self.source_entry.pack(side='left',padx=8)
+        self.source_entry.bind('<<ComboboxSelected>>',lambda _:self.source_changed())
+        self.layout_button=ttk.Button(row,text='Fit NTR bottom screen',command=self.layout_ntr)
+        self.layout_button.pack(side='left')
+        self.setup_buttons.extend((self.source_entry,self.layout_button))
+        self.show_loopy_bottom=tk.BooleanVar(value=saved.get('show_loopy_bottom',True))
+        self.loopy_toggle=ttk.Checkbutton(frame,text='Keep Loopy bottom viewer open in NTR mode',variable=self.show_loopy_bottom,command=self.source_changed)
+        self.loopy_toggle.pack(anchor='w')
+        self.setup_buttons.append(self.loopy_toggle)
         row = ttk.Frame(frame); row.pack(fill='x', pady=5)
         ttk.Label(row,text='Bottom screen:').pack(side='left',padx=4)
         self.window_name=tk.StringVar(value='Looking for cc3dsfs_bot...')
@@ -124,15 +135,18 @@ class App:
         self.status=tk.StringVar(value='Ready. Test controls first; then preview the bottom screen.')
         ttk.Label(frame,textvariable=self.status,wraplength=730).pack(anchor='w',pady=6)
         self.log=tk.Text(frame,height=10,state='disabled',wrap='word'); self.log.pack(fill='both',expand=True)
-        ttk.Label(setup,text='One reference: the loaded-save gradient',font=('Segoe UI',15)).pack(anchor='w')
-        ttk.Label(setup,text='The bottom-screen window is found automatically.\nClick Capture while the patterned gradient is visible just after loading.',wraplength=730).pack(anchor='w',pady=8)
-        for stage in STAGES:
-            button=ttk.Button(setup,text='Capture: '+LABELS[stage],command=lambda stage=stage:self.capture_reference(stage))
-            button.pack(anchor='w',pady=8)
-            self.setup_buttons.append(button)
-        ttk.Label(setup,text='Capture once while the gradient is visible, before Rotom appears.\nThe whole screen is saved automatically.\nAfter resetting, the bot taps A until that screen appears, then starts the encounter.',wraplength=730).pack(anchor='w',pady=10)
-        self.refs_status=tk.StringVar(value='Capture the loaded-save gradient reference once before starting a hunt.')
-        ttk.Label(setup,textvariable=self.refs_status,wraplength=730).pack(anchor='w',pady=8)
+        ttk.Label(setup,text='Save-load detection',font=('Segoe UI',15)).pack(anchor='w')
+        ttk.Label(setup,text='Both Loopy and NTR use majority blue → black → red.\nNo screenshots or gradient references are needed.\nKeep the selected bottom-screen viewer visible and free of settings overlays.',wraplength=730).pack(anchor='w',pady=8)
+        rate_row=ttk.Frame(setup); rate_row.pack(fill='x',pady=8)
+        ttk.Label(rate_row,text='Checks per second:').pack(side='left')
+        self.ntr_hz=tk.StringVar(value=str(saved.get('colour_hz',saved.get('ntr_hz',30))))
+        self.rate_entry=ttk.Combobox(rate_row,textvariable=self.ntr_hz,values=('10','30','60'),state='readonly',width=5)
+        self.rate_entry.pack(side='left',padx=8)
+        ttk.Label(rate_row,text='Try encounter after seconds:').pack(side='left')
+        self.ntr_load_limit=tk.StringVar(value=str(saved.get('load_limit',saved.get('ntr_load_limit',16))))
+        self.limit_entry=ttk.Entry(rate_row,textvariable=self.ntr_load_limit,width=6)
+        self.limit_entry.pack(side='left',padx=8)
+        self.setup_buttons.extend((self.rate_entry,self.limit_entry))
         root.protocol('WM_DELETE_WINDOW',self.close)
         self.refresh()
         self.refresh_reports()
@@ -200,30 +214,32 @@ class App:
             return
         finally:
             if desktop: desktop.close()
-        matches=[(hwnd,title) for hwnd,title in self.windows if title.startswith(BOTTOM_WINDOW_PREFIX)]
-        self.window_name.set(matches[0][1] if len(matches)==1 else
-                             ('Open cc3dsfs and press S for separate screens' if not matches else 'Close duplicate bottom viewers'))
+        try:
+            hwnd=choose_viewer(self.windows,self.source())
+            self.window_name.set(next(title for wid,title in self.windows if wid==hwnd))
+        except ValueError as e:
+            self.window_name.set(str(e))
+
+    def source(self):
+        return self.capture_source.get() if hasattr(self,'capture_source') else 'Loopy USB'
+
+    def source_changed(self):
+        try:
+            saved=json.loads((ROOT/'settings.json').read_text()) if (ROOT/'settings.json').exists() else {}
+            saved['capture_source']=self.source()
+            saved['show_loopy_bottom']=self.show_loopy_bottom.get()
+            (ROOT/'settings.json').write_text(json.dumps(saved,indent=2))
+        except (OSError,ValueError) as e:
+            messagebox.showerror('Capture source',str(e))
+        self.refresh()
+
+    def layout_ntr(self):
+        try: position_ntr()
+        except Exception as e: messagebox.showerror('NTR layout',str(e))
 
     def selected(self, navigation=False):
-        # Re-enumerate so restarting the capture viewer does not keep an old handle.
         self.refresh()
-        return choose_bottom_window(self.windows)
-
-    def references(self):
-        return References(REFS)
-
-    def capture_reference(self,stage):
-        if self.worker and self.worker.is_alive(): return
-        cap=None
-        try:
-            cap=Capture(self.selected(),(.5,.5))
-            image=cap.grab()
-            image.save(REFS/'gradient.png')
-            self.refs_status.set('Gradient saved. Ready to run a single-encounter test.')
-        except Exception as e:
-            messagebox.showerror('Reference capture',str(e))
-        finally:
-            if cap: cap.close()
+        return choose_viewer(self.windows,self.source())
 
     def preview(self):
         try:
@@ -254,6 +270,12 @@ class App:
             for key,value in options.items():
                 low,high=limits[key]
                 if not low <= value <= high: raise ValueError(f'{key} must be between {low} and {high}.')
+            options['capture_source']=self.source()
+            options['show_loopy_bottom']=self.show_loopy_bottom.get()
+            options['colour_hz']=int(self.ntr_hz.get())
+            options['load_limit']=float(self.ntr_load_limit.get())
+            if options['colour_hz'] not in (10,30,60): raise ValueError('Check rate must be 10, 30 or 60 Hz.')
+            if not 5<=options['load_limit']<=45: raise ValueError('Loading limit must be 5–45 seconds.')
             options['auto_recover']=self.auto_recover.get()
             options['adaptive_reset']=self.adaptive_reset.get()
             options['ultra_beast']=self.ultra_beast.get()
@@ -264,10 +286,10 @@ class App:
             import ipaddress
             ipaddress.IPv4Address(ip)
             hwnd=self.selected() if mode=='hunt' else None
-            refs=self.references() if mode=='hunt' else None
+            refs=ColourDetector() if mode=='hunt' else None
             if refs is not None:
-                digest=hashlib.sha256(refs.target.tobytes()).hexdigest()
-                options['stats_key']=f'{ip}|{digest}|reset-v2' 
+                detector_key='ntr-sequence-v3-red' if self.source()=='NTR wireless' else 'usb-sequence-v1-red'
+                options['stats_key']=f'{ip}|colour-categories|{detector_key}'
             if mode=='hunt' and not messagebox.askokcancel('Start hunt', 'The bot will soft-reset the game. Save at the intended encounter first.\n\nThe first encounter pauses for visual confirmation. Continue?'): return
             (ROOT/'settings.json').write_text(json.dumps({'ip':ip,**options},indent=2))
         except Exception as e:
@@ -300,16 +322,13 @@ class App:
                     controller.hold(('L','R','START'),.15)
                     controller.wait(1.0)
                     reset_start=time.monotonic()
-                    limits=stats.limits() if o.get('adaptive_reset',False) else None
-                    loaded=load_save(controller,cap.grab,refs,self.stop,self.emit,learned_limits=limits)
+                    loaded=load_save(controller,cap.grab,refs,self.stop,self.emit,
+                                     timeout=o.get('load_limit',o.get('ntr_load_limit',16)),
+                                     hz=o.get('colour_hz',o.get('ntr_hz',30)))
                     stats.record(loaded)
                     if loaded.gradient_seen:
-                        learned=stats.limits()
-                        if learned:
-                            self.emit(f'Observed reset #{stats.observed_count}: learned startup limits {learned[0]:.2f}s and {learned[1]} A taps (latest {len(stats.samples)} observations).')
-                        else:
-                            self.emit(f'Reset timing observations: {len(stats.samples)}/10 required before learned fallback is available.')
-                    self.emit(f'Reset-to-loaded-save took {time.monotonic()-reset_start:.2f}s.')
+                        self.emit(f'Observed load #{stats.observed_count}; blue → black → red confirmed.')
+                    self.emit(f'Startup wait took {time.monotonic()-reset_start:.2f}s; load '+('confirmed.' if loaded.gradient_seen else 'inferred; encounter check required.'))
                     trigger_errors=[]
                     trigger_cancel.clear()
                     def trigger():
@@ -389,7 +408,7 @@ class App:
                     if phase=='unclassified encounter':
                         self.emit('Interrupted encounter is unclassified. Automatic retry may reset an unseen shiny.')
                     cap.close(); cap=None
-                    cap=wait_for_capture(point,self.stop,self.emit)
+                    cap=wait_for_capture(point,self.stop,self.emit,source='NTR wireless') if o.get('capture_source')=='NTR wireless' else wait_for_capture(point,self.stop,self.emit)
                     stamp=time.strftime('%Y%m%d-%H%M%S')
                     try:
                         cap.grab().save(OUT/f'recovered-{stamp}.png')
@@ -432,7 +451,7 @@ class App:
                 else: self.report_export_status.set('Report export failed: '+text)
             elif kind=='done':
                 self.confirm_button.configure(state='disabled')
-                for b in (self.start_button,self.test_button,self.preview_button,self.refresh_button,*self.setup_buttons): b.configure(state='normal')
+                for b in (self.start_button,self.test_button,self.preview_button,self.refresh_button,*self.setup_buttons): b.configure(state='readonly' if b in (self.source_entry,self.rate_entry) else 'normal')
         if time.monotonic()-self.report_check_time>=2:
             self.report_check_time=time.monotonic()
             self.refresh_reports()

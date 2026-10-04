@@ -9,6 +9,7 @@ import threading
 import time
 from pathlib import Path
 from viewer_reports import record_exit
+from ntr_support import ntr_executable
 
 ROOT = Path(__file__).resolve().parent
 REPORTS = ROOT/'out'/'capture-incidents'
@@ -48,7 +49,10 @@ def run_viewer_once(viewer, folder, stop, child_state, command=None, current_log
         try:
             # Line-buffer output where stdbuf is installed; stderr shares the log.
             launch = ['/usr/bin/stdbuf','-oL','-eL',*arguments] if Path('/usr/bin/stdbuf').exists() else arguments
-            process = subprocess.Popen(launch,cwd=Path(viewer).parent,stdout=log,
+            environment=dict(os.environ)
+            if Path(viewer).name=='ntrviewer':
+                environment['SDL_VIDEODRIVER']='x11'
+            process = subprocess.Popen(launch,cwd=Path(viewer).parent,env=environment,stdout=log,
                                        stderr=subprocess.STDOUT,close_fds=True)
             child_state[0] = process
             if stop.is_set():
@@ -90,24 +94,48 @@ def run_viewer_once(viewer, folder, stop, child_state, command=None, current_log
                               'launch_error':error,'relaunch_scheduled':True})
 
 
+def viewer_specs(settings):
+    """NTR remains primary; an optional USB bottom window stays visible."""
+    usb=Path((ROOT/'capture_executable.txt').read_text().strip()) if (ROOT/'capture_executable.txt').exists() else None
+    if settings.get('capture_source')!='NTR wireless':
+        if usb is None: raise ValueError('USB capture installation is missing.')
+        return [(usb,[str(usb),*FLAGS],True)]
+    ntr=ntr_executable()
+    specs=[(ntr,[str(ntr)],True)]
+    if settings.get('show_loopy_bottom',True) and usb is not None:
+        bottom_flags=FLAGS.copy()
+        bottom_flags[bottom_flags.index('--enabled_top')+1]='0'
+        specs.append((usb,[str(usb),*bottom_flags],False))
+    return specs
+
+
+def supervise(viewer, command, stop, child, current_log):
+    while not stop.is_set():
+        report=run_viewer_once(viewer,REPORTS,stop,child,command=command,current_log=current_log)
+        if report is not None:
+            print(f'{viewer.name} interruption recorded: '+report['reason'],flush=True)
+        if stop.wait(3): break
+
+
 def main():
-    viewer = Path((ROOT/'capture_executable.txt').read_text().strip())
-    if not viewer.is_file() or not os.access(viewer,os.X_OK):
-        raise RuntimeError('Viewer executable is missing; rerun capture setup.')
-    stop = threading.Event()
-    child = [None]
-    def shutdown(_signum, _frame):
+    settings=json.loads((ROOT/'settings.json').read_text()) if (ROOT/'settings.json').exists() else {}
+    specs=viewer_specs(settings)
+    for viewer,_,_ in specs:
+        if not viewer.is_file() or not os.access(viewer,os.X_OK):
+            raise RuntimeError(f'Viewer executable is missing: {viewer}')
+    stop=threading.Event()
+    children=[[None] for _ in specs]
+    def shutdown(_signum,_frame):
         stop.set()
-        if child[0] is not None and child[0].poll() is None:
-            child[0].terminate()
+        for child in children:
+            if child[0] is not None and child[0].poll() is None: child[0].terminate()
     for sig in (signal.SIGINT,signal.SIGTERM,signal.SIGHUP):
         signal.signal(sig,shutdown)
-    while not stop.is_set():
-        report = run_viewer_once(viewer,REPORTS,stop,child)
-        if report is not None:
-            print('Capture interruption recorded: '+report['reason'],flush=True)
-        if stop.wait(3):
-            break
+    threads=[]
+    for (viewer,command,current_log),child in zip(specs,children):
+        thread=threading.Thread(target=supervise,args=(viewer,command,stop,child,current_log))
+        thread.start(); threads.append(thread)
+    for thread in threads: thread.join()
 
 
 if __name__=='__main__':

@@ -2,11 +2,11 @@
 set -euo pipefail
 bot_dir="$(cd -- "$(dirname -- "$0")" && pwd)"
 if [[ ! -f "$bot_dir/capture_executable.txt" ]]; then
-  echo "Cannot find $bot_dir/capture_executable.txt. Run this as jack after installing the bot."
+  echo "Cannot find $bot_dir/capture_executable.txt. Run Setup.sh before installing desktop startup."
   exit 1
 fi
 if [[ $(id -u) -eq 0 ]]; then
-  echo 'Run this as jack, without sudo.'
+  echo 'Run this from your desktop account.'
   exit 1
 fi
 command -v flock >/dev/null
@@ -27,7 +27,7 @@ if [[ ! -f viewer_supervisor.py ]]; then
   echo 'Viewer reporting update is missing. Install the full update.'
   exit 1
 fi
-exec python3 viewer_supervisor.py
+exec .venv/bin/python viewer_supervisor.py
 
 SUPERVISOR
 chmod +x "$bot_dir/Capture_supervisor.sh"

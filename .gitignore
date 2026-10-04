@@ -20,3 +20,6 @@ hatched.txt
 cc3dsfs*.zip
 *.dmp
 *.log
+
+**/ntr-references/
+NTRViewer-HR*.tar.gz

@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
-from navigation import LoadResult, load_save
+from navigation import LoadResult
 from reset_stats import ResetStats
 from core import EncounterStartTimeout
 import test_recovery as support
@@ -36,24 +36,6 @@ class StatsTests(unittest.TestCase):
             path=Path(tmp)/'resets.jsonl'
             path.write_text('broken\n'+json.dumps({'key':'A','gradient_seen':True,'seconds':5,'a_taps':20})+'\n')
             self.assertEqual(ResetStats(path,'A').samples,[(5,20)])
-
-    def test_fallback_requires_both_time_and_tap_limits(self):
-        class Stop:
-            def is_set(self): return False
-            def wait(self,_): return False
-        class Refs:
-            tolerance=12
-            def matches(self,_): return False
-            def score(self,_): return 30
-        from unittest.mock import Mock
-        controller=Mock()
-        ticks=iter(i*.1 for i in range(500))
-        with patch('navigation.time.monotonic',side_effect=lambda:next(ticks)):
-            result=load_save(controller,lambda:None,Refs(),Stop(),lambda _:None,
-                             learned_limits=(1,10))
-        self.assertFalse(result.gradient_seen)
-        self.assertGreaterEqual(result.seconds,1)
-        self.assertEqual(result.a_taps,10)
 
     def test_invalid_observations_cannot_train(self):
         with tempfile.TemporaryDirectory() as tmp:

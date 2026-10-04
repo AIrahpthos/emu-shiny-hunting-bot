@@ -81,6 +81,8 @@ Restarting the desktop stops any active hunt. The capture supervisor restarts th
 
 ## Layout and logs
 
-Use the 1280×800 desktop. The supervisor places the top viewer at approximately (850,30) and bottom at (850,350), with 1× scaling and separate screens. Keep other windows away from the bottom viewer and disable desktop blanking. The viewer’s audio is disabled to avoid repeated audio-device initialization errors in the virtual desktop.
+Use the 1280×800 desktop. The supervisor places the top viewer at approximately (850,30) and bottom at (850,350), with 1× scaling and separate screens. Keep other windows away from the bottom viewer and disable desktop blanking. In NTR mode, choose Bottom Only and connect before using **Fit NTR bottom screen**. This places the wireless bottom feed in the upper-right slot; the optional Loopy bottom feed stays below it. NTR connection settings must be entered again after its viewer restarts. The saved capture source takes effect for the supervisor at its next start.
+
+The USB viewer’s audio is disabled to avoid repeated audio-device initialization errors in the virtual desktop.
 
 Persistent diagnostic output is in the installation’s `out/` directory. Viewer incident ZIPs can be downloaded from Termius SFTP. `~/capture-viewer.log` links to the current viewer log, and `~/capture-supervisor.log` records supervisor output.
