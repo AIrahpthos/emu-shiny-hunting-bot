@@ -344,8 +344,16 @@ class App:
                         self.emit(f'Ultra Beast mode: skipping {skip_changes} changes after the initial dark screen before timing the encounter.')
                     trigger_thread=threading.Thread(target=trigger,daemon=True)
                     trigger_thread.start()
+                    def stop_encounter_input():
+                        trigger_cancel.set()
+                        trigger_thread.join()
+                        controller.release()
+                        if trigger_errors:
+                            raise trigger_errors[0]
+                        self.emit('Battle-start dark screen detected. Controls released for timing.')
                     try:
-                        duration=measure(cap.sample,self.stop,skip_changes=skip_changes,emit=self.emit)
+                        duration=measure(cap.sample,self.stop,skip_changes=skip_changes,emit=self.emit,
+                                         on_dark=stop_encounter_input)
                     finally:
                         trigger_cancel.set()
                         trigger_thread.join()

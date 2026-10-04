@@ -84,7 +84,7 @@ On **Screen setup**, **Checks per second** offers 10, 30 or 60 Hz, with 30 Hz as
 
 On **Hunt**, select the bottom-screen viewer and click **Preview bottom screen**. The timing detector starts at the centre; clicking the preview selects a different detection point. Choose a point that follows the encounter's dark → change → change sequence without triggering on unrelated animation.
 
-Set **Forward hold seconds** to the movement needed to trigger the encounter, or `0` if no forward movement is needed. The bot presses A, moves forward for this duration, then continues tapping A while measuring the encounter.
+Set **Forward hold seconds** to the movement needed to trigger the encounter, or `0` if no forward movement is needed. The bot presses A, moves forward for this duration, then taps A until the battle-start dark screen is detected. It releases controls before observing the two changes used for encounter timing.
 
 Leave **Repeat normal encounters automatically**, **Resume after capture crash**, and **Retry failed attempts** off for the first test. Leave **Ultra Beast mode** off as well; it is not needed for ordinary use, including Ultra Beast hunts.
 

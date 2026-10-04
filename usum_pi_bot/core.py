@@ -69,7 +69,7 @@ def difference(a, b):
 
 
 def trigger_encounter(controller, forward_seconds, cancel):
-    """Advance to the encounter, then tap A until its check completes."""
+    """Advance to the encounter, then tap A until battle-start detection cancels input."""
     try:
         if cancel.is_set(): return
         controller.hold(('A',), .15, cancel=cancel)
@@ -99,7 +99,7 @@ def wait_sample(sample, predicate, stop, timeout=20, stable=3):
     raise TimeoutError('Expected screen transition was not seen. Stopped without another reset.')
 
 
-def measure(sample, stop, skip_changes=0, emit=None):
+def measure(sample, stop, skip_changes=0, emit=None, on_dark=None):
     # Damon's sequence: dark screen -> first change -> second change.
     # Region averaging and consecutive matches tolerate capture noise.
     if type(skip_changes) is not int or not 0 <= skip_changes <= 20:
@@ -108,10 +108,13 @@ def measure(sample, stop, skip_changes=0, emit=None):
         dark = wait_sample(sample, lambda p: max(p) <= 25, stop)
     except TimeoutError as e:
         raise EncounterStartTimeout('Battle-start dark screen was not observed.') from e
+    # Stop and join the input worker before observing the timed transitions.
+    if on_dark is not None:
+        on_dark()
     previous = dark
     for index in range(skip_changes):
         previous = wait_sample(sample, lambda p: difference(p, previous) >= 35, stop)
-        if emit: emit(f'Skipped cutscene screen change {index+1}/{skip_changes}. A taps continue.')
+        if emit: emit(f'Skipped cutscene screen change {index+1}/{skip_changes}.')
     first = wait_sample(sample, lambda p: difference(p, previous) >= 35, stop)
     if emit: emit('Encounter timing started. Waiting for the next screen change.')
     start = time.monotonic()
