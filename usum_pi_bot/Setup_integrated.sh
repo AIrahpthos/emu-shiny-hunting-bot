@@ -12,4 +12,5 @@ bash native/Build_loopy.sh
 sed "s/__UID__/$(id -u)/g" native/51-shiny-loopy.rules > native/51-shiny-loopy.installed.rules
 sudo install -m 0644 native/51-shiny-loopy.installed.rules /etc/udev/rules.d/51-shiny-loopy.rules
 sudo udevadm control --reload-rules
-printf '\nSetup finished. Reconnect the USB cable if using Loopy, then run bash Launch.sh.\n'
+bash Install_capture_recovery.sh
+printf '\nSetup finished. Reconnect the USB cable if using Loopy, then restart the desktop after stopping the old hunt.\n'

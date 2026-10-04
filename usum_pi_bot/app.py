@@ -155,10 +155,14 @@ class App:
         self.limit_entry=ttk.Entry(rate_row,textvariable=self.ntr_load_limit,width=6)
         self.limit_entry.pack(side='left',padx=8)
         self.setup_buttons.extend((self.rate_entry,self.limit_entry))
+        self.auto_connect_capture=tk.BooleanVar(value=saved.get('auto_connect_capture',True))
+        ttk.Checkbutton(setup,text='Connect saved capture automatically when the bot opens',
+                        variable=self.auto_connect_capture,command=self.save_auto_connect).pack(anchor='w',pady=6)
         root.protocol('WM_DELETE_WINDOW',self.close)
         self.refresh()
         self.refresh_reports()
         root.after(100,self.poll)
+        root.after(500,self.connect_saved_capture)
 
     def refresh_reports(self):
         folder=OUT/'capture-incidents'
@@ -211,6 +215,20 @@ class App:
         self.report_export_thread=threading.Thread(target=export,daemon=True)
         self.report_export_thread.start()
 
+    def save_auto_connect(self):
+        try:
+            saved=json.loads((ROOT/'settings.json').read_text()) if (ROOT/'settings.json').exists() else {}
+            saved['auto_connect_capture']=self.auto_connect_capture.get()
+            (ROOT/'settings.json').write_text(json.dumps(saved,indent=2))
+        except (OSError,ValueError) as e:
+            messagebox.showerror('Capture settings',str(e))
+
+    def connect_saved_capture(self):
+        if self.stop.is_set() or not self.auto_connect_capture.get(): return
+        if self.source()=='NTR wireless' and not self.ip.get().strip():
+            self.emit('Enter the 3DS IP, then click Connect capture.'); return
+        self.connect_capture()
+
     def capture_options(self):
         quality=int(self.ntr_quality.get()); bandwidth=int(self.ntr_bandwidth.get())
         if self.source()=='NTR wireless':
@@ -240,7 +258,8 @@ class App:
             quality,bandwidth=self.capture_options()
             source=self.source(); ip=self.ip.get().strip()
             saved=json.loads((ROOT/'settings.json').read_text()) if (ROOT/'settings.json').exists() else {}
-            saved.update(capture_source=source,ip=ip,ntr_quality=quality,ntr_bandwidth=bandwidth)
+            saved.update(capture_source=source,ip=ip,ntr_quality=quality,ntr_bandwidth=bandwidth,
+                         auto_connect_capture=self.auto_connect_capture.get())
             (ROOT/'settings.json').write_text(json.dumps(saved,indent=2))
         except Exception as e:
             messagebox.showerror('Capture connection',str(e)); return
@@ -301,6 +320,7 @@ class App:
                 low,high=limits[key]
                 if not low <= value <= high: raise ValueError(f'{key} must be between {low} and {high}.')
             options['capture_source']=self.source()
+            options['auto_connect_capture']=self.auto_connect_capture.get()
             options['ntr_quality'],options['ntr_bandwidth']=self.capture_options()
             options['colour_hz']=int(self.ntr_hz.get())
             options['load_limit']=float(self.ntr_load_limit.get())

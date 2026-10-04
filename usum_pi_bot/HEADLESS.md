@@ -1,11 +1,13 @@
 # Integrated bot on your existing VNC desktop
 
-Use the existing 1280×800 TigerVNC/Openbox desktop. A physical monitor is not required. Launch the bot from the VNC terminal or use `DISPLAY=:1` from SSH, as shown in [README.md](README.md).
+Use the existing 1280×800 TigerVNC/Openbox desktop and its existing boot service. A physical monitor is not required.
 
-The bot provides its own preview and capture connections. No viewer or capture-supervisor startup is needed. Covering the preview or disconnecting the iPad's VNC client does not interrupt direct capture; keep the desktop session itself running.
+Setup backs up `~/.config/openbox/autostart` and replaces the known old bot/viewer startup entries with one entry for this installation. Other startup commands are preserved. Existing processes are not killed by setup; stop the active hunt and restart the desktop to apply the change.
 
-When this version has passed a hardware test, remove the old installation's `Capture_supervisor.sh`, `Launch_capture.sh` and `Launch.sh` entries from `~/.config/openbox/autostart`. Run `bash Install_capture_recovery.sh` from this installation to add its one bot startup entry. Reuse your existing desktop boot service.
+The new bot opens and automatically connects the saved capture source. NTR uses the saved 3DS IP, JPEG quality and bandwidth. Loopy connects directly over USB. No separate viewer or capture supervisor needs to start. The Screen setup checkbox can disable automatic capture connection.
 
-The bot window opens at desktop startup. Click Connect capture to start the selected feed, then start the hunt and confirm the first normal encounter. Capture reconnects are automatic while the app stays open, but launching the app does not automatically start hunting.
+Starting the hunt and confirming the first normal encounter remain manual. Covering the preview or disconnecting the iPad VNC client does not interrupt direct capture; keep the desktop session itself running.
 
-Logs are in `out/`; Recovery reports exports incident ZIPs there. SSH-launched GUI output is in `~/shiny-integrated.log` if you used the command in README. Console crashes still require manual console recovery.
+To apply the migration again, run `bash Install_capture_recovery.sh` from this installation. It is safe to repeat and avoids duplicate bot entries. The previous startup file is saved beside it as `autostart.before-integrated-<timestamp>`; restore that backup to return to the former boot setup.
+
+Logs are in `out/`; Recovery reports exports incident ZIPs there. GUI output is in `~/shiny-integrated.log`. Console crashes still require manual console recovery.

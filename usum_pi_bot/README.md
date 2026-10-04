@@ -19,9 +19,9 @@ From this repository's `usum_pi_bot` directory:
 bash Setup_integrated.sh
 ```
 
-Setup installs dependencies, creates the Python environment, builds the Loopy helper and configures USB permissions for your account. Reconnect the board after setup.
+Setup installs dependencies, creates the Python environment, builds the Loopy helper, configures USB permissions for your account, and migrates desktop startup. Reconnect the board after setup.
 
-Close the old bot and **stop its capture supervisor**, then close its viewers. The old supervisor must remain stopped while testing: it would otherwise compete for the USB board or wireless port. This development installation does not change the old desktop startup entries.
+Close the old bot and **stop its capture supervisor**, then close its viewers. The old supervisor must remain stopped while testing: it would otherwise compete for the USB board or wireless port. Setup backs up the Openbox startup file and replaces the known old bot/viewer entries with this installation’s Launch.sh. Existing processes keep running until you close them or restart the desktop.
 
 Launch in your VNC terminal:
 
@@ -44,6 +44,8 @@ nohup env DISPLAY=:1 bash Launch.sh > ~/shiny-integrated.log 2>&1 < /dev/null &
 5. Click **Show bottom screen** to open the live preview in **Screen setup**. Click the preview to select the encounter timing point.
 
 After changing source, IP or NTR settings, click Connect capture again to apply them. **Reconnect capture** forces a fresh connection. Hunt controls lock connection settings while a hunt is active.
+
+**Connect saved capture automatically when the bot opens** is enabled by default on Screen setup. Desktop startup opens the new bot and its saved capture feed. Starting a hunt and confirming its first normal encounter remain manual.
 
 NTR must already be running on the 3DS. This receiver supports **JPEG Compat**, including legacy NTR; Reliable Stream, Delta and lossless modes are not implemented. Nothing needs to be configured in NTRViewer-HR. Close any other viewer using UDP port 8001 first. TCP port 8000 and UDP port 8001 must be reachable on the local network.
 
@@ -73,7 +75,7 @@ Settings live in `settings.json`; logs, screenshots, reset history and incident 
 
 ## Return to the previous bot
 
-Close this development bot to release capture. Restart your original capture supervisor and bot as before. The separate installation leaves their source, settings and startup entries intact.
+Close this development bot to release capture. Restore the saved Openbox startup backup, then restart your original capture supervisor and bot as before. The separate installation leaves their source and settings intact; setup changes only which installation desktop startup opens.
 
 ## Validation
 
