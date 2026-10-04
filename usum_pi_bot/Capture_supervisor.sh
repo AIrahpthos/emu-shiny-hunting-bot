@@ -1,7 +1,2 @@
 #!/usr/bin/env bash
-set -eu
-cd -- "$(dirname -- "$0")"
-[[ -n ${DISPLAY:-} ]] || { echo 'Run from the X11/VNC desktop.'; exit 1; }
-exec 9> .capture-supervisor.lock
-flock -n 9 || { echo 'Capture supervisor is already running.'; exit 0; }
-exec .venv/bin/python viewer_supervisor.py
+printf 'Capture is now managed inside the bot. Start Launch.sh and click Connect capture.\n'

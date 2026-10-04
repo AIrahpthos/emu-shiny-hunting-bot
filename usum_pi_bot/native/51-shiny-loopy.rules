@@ -1,0 +1,2 @@
+# Loopy New 3DS capture board: local active-user access, no world-writable USB node.
+SUBSYSTEM=="usb", ATTR{idVendor}=="0403", ATTR{idProduct}=="601e", MODE="0660", OWNER="__UID__", TAG+="uaccess"

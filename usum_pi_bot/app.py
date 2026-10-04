@@ -1,4 +1,4 @@
-"""USUM real-hardware static encounter bot. cc3dsfs bottom-screen viewer must stay visible on X11."""
+"""USUM real-hardware bot with integrated direct bottom-screen capture."""
 import json
 import queue
 import threading
@@ -7,11 +7,12 @@ from pathlib import Path
 import tkinter as tk
 from tkinter import ttk, messagebox
 from PIL import Image, ImageTk, ImageStat
-from capture_linux import Capture, Desktop, ViewerUnavailable
-from recovery import wait_for_capture
+from capture_linux import ViewerUnavailable
+from frame_feed import Capture, wait_for_capture
+from capture_service import CaptureService
 from core import Controller, Stopped, EncounterStartTimeout, measure, classify, choose_bottom_window, BOTTOM_WINDOW_PREFIX, trigger_encounter
 from navigation import ColourDetector, load_save
-from ntr_support import SOURCES, choose_viewer, position_ntr
+from ntr_support import SOURCES
 from reset_stats import ResetStats
 from viewer_reports import read_reports, export_reports
 
@@ -23,8 +24,11 @@ OUT.mkdir(exist_ok=True)
 class App:
     def __init__(self, root):
         self.root = root
-        root.title('USUM Pi Shiny Hunter — recovery reports')
-        root.geometry('760x780+10+10')
+        root.title('USUM Pi Shiny Hunter — integrated capture')
+        root.geometry('780x750+10+10')
+        self.capture_service=CaptureService(ROOT,self.emit)
+        self.preview_sequence=0
+        self.capture_connect_thread=None
         self.stop = threading.Event()
         self.confirm = threading.Event()
         self.events = queue.Queue()
@@ -75,7 +79,7 @@ class App:
         ttk.Label(reports,textvariable=self.report_export_status,wraplength=710).pack(anchor='w',pady=8)
         ttk.Label(frame, text='USUM static encounters on a real 3DS', font=('Segoe UI',16)).pack(anchor='w')
         ttk.Button(frame,textvariable=self.report_summary,command=lambda:self.tabs.select(self.reports_tab)).pack(anchor='w',pady=4)
-        ttk.Label(frame, text='Keep the bottom viewer visible. For NTR, choose Bottom Only, hide settings and fit.').pack(anchor='w', pady=5)
+        ttk.Label(frame, text='Bottom-screen capture is integrated. Covering the preview does not affect detection.').pack(anchor='w', pady=5)
         row = ttk.Frame(frame); row.pack(fill='x', pady=5)
         ttk.Label(row,text='3DS IP:').pack(side='left')
         self.ip = tk.StringVar(value=saved.get('ip',''))
@@ -88,24 +92,28 @@ class App:
         self.source_entry=ttk.Combobox(row,textvariable=self.capture_source,values=SOURCES,state='readonly',width=16)
         self.source_entry.pack(side='left',padx=8)
         self.source_entry.bind('<<ComboboxSelected>>',lambda _:self.source_changed())
-        self.layout_button=ttk.Button(row,text='Fit NTR bottom screen',command=self.layout_ntr)
-        self.layout_button.pack(side='left')
-        self.setup_buttons.extend((self.source_entry,self.layout_button))
-        self.show_loopy_bottom=tk.BooleanVar(value=saved.get('show_loopy_bottom',True))
-        self.loopy_toggle=ttk.Checkbutton(frame,text='Keep Loopy bottom viewer open in NTR mode',variable=self.show_loopy_bottom,command=self.source_changed)
-        self.loopy_toggle.pack(anchor='w')
-        self.setup_buttons.append(self.loopy_toggle)
-        row = ttk.Frame(frame); row.pack(fill='x', pady=5)
-        ttk.Label(row,text='Bottom screen:').pack(side='left',padx=4)
-        self.window_name=tk.StringVar(value='Looking for cc3dsfs_bot...')
-        self.window = ttk.Label(row,textvariable=self.window_name)
-        self.window.pack(side='left',fill='x',expand=True)
-        self.refresh_button = ttk.Button(row,text='Refresh windows',command=self.refresh)
-        self.refresh_button.pack(side='left',padx=5)
-        self.preview_button = ttk.Button(frame,text='Preview bottom screen',command=self.preview)
-        self.preview_button.pack(anchor='w',pady=5)
-        self.preview_label = ttk.Label(frame,text='Bottom-screen preview')
+        self.connect_button=ttk.Button(row,text='Connect capture',command=self.connect_capture)
+        self.connect_button.pack(side='left')
+        self.setup_buttons.extend((self.source_entry,self.connect_button))
+        row=ttk.Frame(frame); row.pack(fill='x',pady=4)
+        self.ntr_quality=tk.StringVar(value=str(saved.get('ntr_quality',40)))
+        self.ntr_bandwidth=tk.StringVar(value=str(saved.get('ntr_bandwidth',10)))
+        ttk.Label(row,text='NTR JPEG quality:').pack(side='left')
+        self.quality_entry=ttk.Spinbox(row,from_=1,to=95,width=4,textvariable=self.ntr_quality)
+        self.quality_entry.pack(side='left',padx=8)
+        ttk.Label(row,text='Bandwidth (Mbps):').pack(side='left')
+        self.bandwidth_entry=ttk.Spinbox(row,from_=1,to=40,width=4,textvariable=self.ntr_bandwidth)
+        self.bandwidth_entry.pack(side='left',padx=8)
+        self.setup_buttons.extend((self.quality_entry,self.bandwidth_entry))
+        self.window_name=tk.StringVar(value='Capture disconnected. Choose a source and connect.')
+        ttk.Label(frame,textvariable=self.window_name,wraplength=730).pack(anchor='w',pady=4)
+        self.refresh_button=ttk.Button(frame,text='Reconnect capture',command=lambda:self.connect_capture(reconnect=True))
+        self.refresh_button.pack(anchor='w')
+        self.preview_button=ttk.Button(frame,text='Show bottom screen',command=self.preview)
+        self.preview_button.pack(anchor='w',pady=3)
+        self.preview_label = ttk.Label(setup,text='Bottom-screen preview')
         self.preview_label.pack(pady=5)
+        self.preview_label.configure(text='Bottom-screen preview will appear here after connecting.')
         self.preview_label.bind('<Button-1>',self.pick)
         settings = ttk.Frame(frame); settings.pack(fill='x',pady=8)
         self.values = {}
@@ -136,7 +144,7 @@ class App:
         ttk.Label(frame,textvariable=self.status,wraplength=730).pack(anchor='w',pady=6)
         self.log=tk.Text(frame,height=10,state='disabled',wrap='word'); self.log.pack(fill='both',expand=True)
         ttk.Label(setup,text='Save-load detection',font=('Segoe UI',15)).pack(anchor='w')
-        ttk.Label(setup,text='Both Loopy and NTR use majority blue → black → red.\nNo screenshots or gradient references are needed.\nKeep the selected bottom-screen viewer visible and free of settings overlays.',wraplength=730).pack(anchor='w',pady=8)
+        ttk.Label(setup,text='Both Loopy and NTR use majority blue → black → red.\nNo screenshots or gradient references are needed.\nFrames come directly from the selected capture source; window visibility is irrelevant.',wraplength=730).pack(anchor='w',pady=8)
         rate_row=ttk.Frame(setup); rate_row.pack(fill='x',pady=8)
         ttk.Label(rate_row,text='Checks per second:').pack(side='left')
         self.ntr_hz=tk.StringVar(value=str(saved.get('colour_hz',saved.get('ntr_hz',30))))
@@ -203,55 +211,77 @@ class App:
         self.report_export_thread=threading.Thread(target=export,daemon=True)
         self.report_export_thread.start()
 
+    def capture_options(self):
+        quality=int(self.ntr_quality.get()); bandwidth=int(self.ntr_bandwidth.get())
+        if self.source()=='NTR wireless':
+            from ntr_capture import stream_args
+            stream_args(quality,bandwidth)
+            import ipaddress
+            ipaddress.IPv4Address(self.ip.get().strip())
+        return quality,bandwidth
+
     def refresh(self):
-        desktop=None
         try:
-            desktop=Desktop()
-            self.windows=desktop.windows()
-        except Exception as e:
-            self.windows=[]
-            self.window_name.set(str(e))
-            return
-        finally:
-            if desktop: desktop.close()
-        try:
-            hwnd=choose_viewer(self.windows,self.source())
-            self.window_name.set(next(title for wid,title in self.windows if wid==hwnd))
-        except ValueError as e:
+            frame=self.capture_service.store.latest()
+            self.window_name.set(f'{self.source()} bottom feed connected — frame {frame.sequence}')
+        except ViewerUnavailable as e:
             self.window_name.set(str(e))
 
     def source(self):
         return self.capture_source.get() if hasattr(self,'capture_source') else 'Loopy USB'
 
     def source_changed(self):
-        try:
-            saved=json.loads((ROOT/'settings.json').read_text()) if (ROOT/'settings.json').exists() else {}
-            saved['capture_source']=self.source()
-            saved['show_loopy_bottom']=self.show_loopy_bottom.get()
-            (ROOT/'settings.json').write_text(json.dumps(saved,indent=2))
-        except (OSError,ValueError) as e:
-            messagebox.showerror('Capture source',str(e))
-        self.refresh()
+        self.status.set('Source changed. Click Connect capture to apply.')
 
-    def layout_ntr(self):
-        try: position_ntr()
-        except Exception as e: messagebox.showerror('NTR layout',str(e))
+    def connect_capture(self, reconnect=False):
+        if self.worker and self.worker.is_alive(): return
+        if self.capture_connect_thread and self.capture_connect_thread.is_alive(): return
+        try:
+            quality,bandwidth=self.capture_options()
+            source=self.source(); ip=self.ip.get().strip()
+            saved=json.loads((ROOT/'settings.json').read_text()) if (ROOT/'settings.json').exists() else {}
+            saved.update(capture_source=source,ip=ip,ntr_quality=quality,ntr_bandwidth=bandwidth)
+            (ROOT/'settings.json').write_text(json.dumps(saved,indent=2))
+        except Exception as e:
+            messagebox.showerror('Capture connection',str(e)); return
+        self.connect_button.configure(state='disabled')
+        self.refresh_button.configure(state='disabled')
+        self.start_button.configure(state='disabled')
+        self.source_entry.configure(state='disabled')
+        def connect():
+            try:
+                if reconnect: self.capture_service.close()
+                self.capture_service.connect(source,ip,quality,bandwidth)
+            except Exception as e: self.emit(f'Capture connection failed: {e}')
+            finally: self.events.put(('capture_connected',None))
+        self.capture_connect_thread=threading.Thread(target=connect,daemon=True)
+        self.capture_connect_thread.start()
 
     def selected(self, navigation=False):
-        self.refresh()
-        return choose_viewer(self.windows,self.source())
+        if self.capture_connect_thread and self.capture_connect_thread.is_alive():
+            raise ValueError('Wait for capture connection to finish.')
+        quality,bandwidth=self.capture_options()
+        expected=(self.source(),self.ip.get().strip(),quality,bandwidth) if self.source()=='NTR wireless' else (self.source(),)
+        if self.capture_service.config!=expected:
+            raise ValueError('Click Connect capture to apply the selected source and settings first.')
+        self.capture_service.store.latest()
+        return self.capture_service.store
 
     def preview(self):
         try:
-            cap=Capture(self.selected(),self.point)
-            try: image=cap.grab()
-            finally: cap.close()
-            image.thumbnail((480,300))
-            self.preview_size=image.size
-            self.photo=ImageTk.PhotoImage(image)
-            self.preview_label.configure(image=self.photo,text='')
-            self.status.set(f'Detection point: {self.point[0]:.0%} across, {self.point[1]:.0%} down. Default is the centre.')
-        except Exception as e: messagebox.showerror('Preview',str(e))
+            frame=self.capture_service.store.latest()
+            self.display_preview(frame)
+            self.tabs.select(1)
+        except ViewerUnavailable as e: self.window_name.set(str(e))
+
+    def display_preview(self,frame):
+        if frame.sequence==self.preview_sequence: return
+        self.preview_sequence=frame.sequence
+        image=frame.image.copy()
+        image.thumbnail((320,240))
+        self.preview_size=image.size
+        self.preview_image=ImageTk.PhotoImage(image)
+        self.preview_label.configure(image=self.preview_image,text='')
 
     def pick(self,event):
         if self.worker and self.worker.is_alive(): return
@@ -271,7 +301,7 @@ class App:
                 low,high=limits[key]
                 if not low <= value <= high: raise ValueError(f'{key} must be between {low} and {high}.')
             options['capture_source']=self.source()
-            options['show_loopy_bottom']=self.show_loopy_bottom.get()
+            options['ntr_quality'],options['ntr_bandwidth']=self.capture_options()
             options['colour_hz']=int(self.ntr_hz.get())
             options['load_limit']=float(self.ntr_load_limit.get())
             if options['colour_hz'] not in (10,30,60): raise ValueError('Check rate must be 10, 30 or 60 Hz.')
@@ -314,6 +344,7 @@ class App:
                 controller.hold(('RIGHT',),.25)
                 self.emit('D-pad right sent. UDP has no connection acknowledgement: verify the console moved.'); return
             cap=Capture(hwnd,point)
+            if hasattr(cap,"stop"): cap.stop=self.stop
             while not self.stop.is_set():
                 phase='before encounter'
                 try:
@@ -412,11 +443,11 @@ class App:
                     controller.release()
                     if self.stop.is_set(): raise Stopped()
                     if not o.get('auto_recover',False): raise
-                    self.emit(f'CAPTURE LOST during {phase}: {e}. Controls released; waiting for viewer recovery.')
+                    self.emit(f'CAPTURE LOST during {phase}: {e}. Controls released; waiting for fresh capture frames.')
                     if phase=='unclassified encounter':
                         self.emit('Interrupted encounter is unclassified. Automatic retry may reset an unseen shiny.')
                     cap.close(); cap=None
-                    cap=wait_for_capture(point,self.stop,self.emit,source='NTR wireless') if o.get('capture_source')=='NTR wireless' else wait_for_capture(point,self.stop,self.emit)
+                    cap=wait_for_capture(point,self.stop,self.emit,store=hwnd)
                     stamp=time.strftime('%Y%m%d-%H%M%S')
                     try:
                         cap.grab().save(OUT/f'recovered-{stamp}.png')
@@ -457,12 +488,23 @@ class App:
                 ok,text=value
                 if ok: self.report_export_status.set(f'Saved: {text}\nDownload this ZIP using Termius SFTP and attach it here.')
                 else: self.report_export_status.set('Report export failed: '+text)
+            elif kind=='capture_connected':
+                self.connect_button.configure(state='normal')
+                self.refresh_button.configure(state='normal')
+                self.start_button.configure(state='normal')
+                self.source_entry.configure(state='readonly')
             elif kind=='done':
                 self.confirm_button.configure(state='disabled')
                 for b in (self.start_button,self.test_button,self.preview_button,self.refresh_button,*self.setup_buttons): b.configure(state='readonly' if b in (self.source_entry,self.rate_entry) else 'normal')
         if time.monotonic()-self.report_check_time>=2:
             self.report_check_time=time.monotonic()
             self.refresh_reports()
+        try:
+            frame=self.capture_service.store.latest()
+            self.display_preview(frame)
+            self.window_name.set(f'Bottom feed connected — frame {frame.sequence}')
+        except ViewerUnavailable as e:
+            self.window_name.set(str(e))
         self.root.after(100,self.poll)
 
     def close(self):
@@ -470,7 +512,11 @@ class App:
         if ((self.worker and self.worker.is_alive()) or
             (self.report_export_thread and self.report_export_thread.is_alive())):
             self.root.after(100,self.close)
-        else: self.root.destroy()
+        elif self.capture_connect_thread and self.capture_connect_thread.is_alive():
+            self.root.after(100,self.close)
+        else:
+            self.capture_service.close()
+            self.root.destroy()
 
 
 if __name__=='__main__':

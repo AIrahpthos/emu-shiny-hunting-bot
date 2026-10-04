@@ -23,3 +23,9 @@ cc3dsfs*.zip
 
 **/ntr-references/
 NTRViewer-HR*.tar.gz
+
+# Integrated capture native builds
+**/native/bin/
+**/native/build/
+**/native/build-source/
+**/native/*.installed.rules

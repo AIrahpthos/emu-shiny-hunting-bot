@@ -1,55 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
 bot_dir="$(cd -- "$(dirname -- "$0")" && pwd)"
-if [[ ! -f "$bot_dir/capture_executable.txt" ]]; then
-  echo "Cannot find $bot_dir/capture_executable.txt. Run Setup.sh before installing desktop startup."
-  exit 1
-fi
-if [[ $(id -u) -eq 0 ]]; then
-  echo 'Run this from your desktop account.'
-  exit 1
-fi
-command -v flock >/dev/null
-mkdir -p "$HOME/.config/openbox"
-cat > "$bot_dir/Capture_supervisor.sh" <<'SUPERVISOR'
-#!/usr/bin/env bash
-set -u
-cd -- "$(dirname -- "$0")" || exit 1
-if [[ -z ${DISPLAY:-} ]]; then
-  echo 'Launch this from the VNC desktop terminal.'
-  exit 1
-fi
-exec 9> .capture-supervisor.lock
-flock -n 9 || { echo 'Capture supervisor is already running.'; exit 0; }
-viewer=$(cat capture_executable.txt) || exit 1
-[[ -x "$viewer" ]] || { echo 'Capture executable is missing.'; exit 1; }
-if [[ ! -f viewer_supervisor.py ]]; then
-  echo 'Viewer reporting update is missing. Install the full update.'
-  exit 1
-fi
-exec .venv/bin/python viewer_supervisor.py
-
-SUPERVISOR
-chmod +x "$bot_dir/Capture_supervisor.sh"
 python3 - "$HOME/.config/openbox/autostart" "$bot_dir" <<'PY'
-import sys
+import sys,shlex
 from pathlib import Path
-from shlex import quote
-p = Path(sys.argv[1])
-bot = Path(sys.argv[2])
-s = p.read_text() if p.exists() else ''
-backup = p.with_name('autostart.before-capture-recovery')
-if p.exists() and not backup.exists():
-    backup.write_text(s)
-if 'Capture_supervisor.sh' not in s:
-    if 'Launch_capture.sh' in s:
-        s = s.replace('Launch_capture.sh', 'Capture_supervisor.sh')
-    else:
-        s += '\nbash ' + quote(str(bot / 'Capture_supervisor.sh')) + ' >> ' + quote(str(Path.home()/'capture-supervisor.log')) + ' 2>&1 &\n'
-s = '\n'.join(line.replace('capture-viewer.log','capture-supervisor.log')
-              if 'Capture_supervisor.sh' in line else line for line in s.split('\n'))
-p.write_text(s)
+path=Path(sys.argv[1]);bot=Path(sys.argv[2])
+path.parent.mkdir(parents=True,exist_ok=True)
+text=path.read_text() if path.exists() else ''
+backup=path.with_name('autostart.before-integrated-capture')
+if path.exists() and not backup.exists():backup.write_text(text)
+# Only replace this installation's entries. Other installations remain untouched.
+lines=[line for line in text.splitlines() if not (str(bot) in line and any(x in line for x in ['Capture_supervisor.sh','Launch_capture.sh','Launch.sh']))]
+lines.append('bash '+shlex.quote(str(bot/'Launch.sh'))+' >> "$HOME/shiny-integrated.log" 2>&1 &')
+path.write_text('\n'.join(lines)+'\n')
 PY
-echo 'Capture recovery installed. It will run at the next desktop start.'
-echo 'The supervisor reopens the viewer even after you close it manually.'
-echo 'It restarts exited processes; it does not detect a frozen viewer.'
+printf 'Integrated bot startup installed. Remove any old installation entries before the next desktop start.\n'

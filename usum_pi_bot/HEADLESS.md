@@ -1,88 +1,11 @@
-# Headless Pi desktop from an iPad
+# Integrated bot on your existing VNC desktop
 
-The tested setup uses Raspberry Pi OS/Debian 13, SSH, TigerVNC and Openbox. An X11 virtual desktop keeps both capture windows visible without an HDMI monitor. VNC viewer access from an iPad is sufficient for setup and control; Termius SSH/SFTP handles commands and downloads.
+Use the existing 1280×800 TigerVNC/Openbox desktop. A physical monitor is not required. Launch the bot from the VNC terminal or use `DISPLAY=:1` from SSH, as shown in [README.md](README.md).
 
-## Desktop installation
+The bot provides its own preview and capture connections. No viewer or capture-supervisor startup is needed. Covering the preview or disconnecting the iPad's VNC client does not interrupt direct capture; keep the desktop session itself running.
 
-```bash
-sudo apt-get update
-sudo apt-get install -y tigervnc-standalone-server tigervnc-common openbox xterm pcmanfm dbus-x11
-tigervncpasswd
-```
+When this version has passed a hardware test, remove the old installation's `Capture_supervisor.sh`, `Launch_capture.sh` and `Launch.sh` entries from `~/.config/openbox/autostart`. Run `bash Install_capture_recovery.sh` from this installation to add its one bot startup entry. Reuse your existing desktop boot service.
 
-Create `~/start-shiny-desktop.sh`:
+The bot window opens at desktop startup. Click Connect capture to start the selected feed, then start the hunt and confirm the first normal encounter. Capture reconnects are automatic while the app stays open, but launching the app does not automatically start hunting.
 
-```sh
-#!/bin/sh
-unset SESSION_MANAGER DBUS_SESSION_BUS_ADDRESS WAYLAND_DISPLAY
-export XDG_SESSION_TYPE=x11
-xterm &
-exec dbus-run-session -- openbox-session
-```
-
-```bash
-chmod +x ~/start-shiny-desktop.sh
-tigervncserver :1 -localhost no -SecurityTypes VncAuth -geometry 1280x800 -depth 24 -xstartup "$HOME/start-shiny-desktop.sh"
-```
-
-Connect the iPad VNC viewer to the Pi’s LAN IP, port **5901** (display `:1`), using the VNC password. Keep this service on your local network; do not forward its port through your router.
-
-## Capture and bot startup
-
-From `usum_pi_bot/`, run:
-
-```bash
-bash Install_capture_recovery.sh
-```
-
-This adds the capture supervisor to `~/.config/openbox/autostart`. Also add one line for the bot, replacing `/absolute/path/usum_pi_bot` with the actual installation directory:
-
-```sh
-bash /absolute/path/usum_pi_bot/Launch.sh >> "$HOME/shiny-bot.log" 2>&1 &
-```
-
-Keep only one capture-supervisor entry and one bot entry. When migrating from an older installation, update the old paths instead of starting both installations. Restart the desktop to apply autostart changes. The bot GUI launches automatically; hunting still requires its Start button and first-normal confirmation.
-
-## Start the desktop at boot
-
-Create `/etc/systemd/system/shiny-desktop.service` using the following, replacing `USERNAME` and `/home/USERNAME` with your account and home directory:
-
-```ini
-[Unit]
-Description=Shiny bot remote desktop
-After=network.target
-
-[Service]
-Type=simple
-User=USERNAME
-WorkingDirectory=/home/USERNAME
-Environment=HOME=/home/USERNAME
-ExecStartPre=-/usr/bin/tigervncserver -kill :1
-ExecStart=/usr/bin/tigervncserver :1 -fg -localhost no -SecurityTypes VncAuth -geometry 1280x800 -depth 24 -xstartup /home/USERNAME/start-shiny-desktop.sh
-Restart=on-failure
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-```
-
-```bash
-sudo systemctl daemon-reload
-sudo systemctl enable --now shiny-desktop.service
-```
-
-Stop any manually launched display `:1` before starting the service. To restart later:
-
-```bash
-sudo systemctl restart shiny-desktop.service
-```
-
-Restarting the desktop stops any active hunt. The capture supervisor restarts the viewer within an existing desktop session; the bot’s optional capture recovery resumes an interrupted active hunt. Neither automatically restarts a crashed 3DS nor enables InputRedirection after a console reboot.
-
-## Layout and logs
-
-Use the 1280×800 desktop. The supervisor places the top viewer at approximately (850,30) and bottom at (850,350), with 1× scaling and separate screens. Keep other windows away from the bottom viewer and disable desktop blanking. In NTR mode, choose Bottom Only and connect before using **Fit NTR bottom screen**. This places the wireless bottom feed in the upper-right slot; the optional Loopy bottom feed stays below it. NTR connection settings must be entered again after its viewer restarts. The saved capture source takes effect for the supervisor at its next start.
-
-The USB viewer’s audio is disabled to avoid repeated audio-device initialization errors in the virtual desktop.
-
-Persistent diagnostic output is in the installation’s `out/` directory. Viewer incident ZIPs can be downloaded from Termius SFTP. `~/capture-viewer.log` links to the current viewer log, and `~/capture-supervisor.log` records supervisor output.
+Logs are in `out/`; Recovery reports exports incident ZIPs there. SSH-launched GUI output is in `~/shiny-integrated.log` if you used the command in README. Console crashes still require manual console recovery.

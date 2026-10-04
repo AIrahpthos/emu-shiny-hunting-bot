@@ -1,16 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 cd -- "$(dirname -- "$0")"
-if [[ ! -x .venv/bin/python ]]; then
-  echo 'Run bash Setup.sh first.'
-  exit 1
-fi
-if [[ ${XDG_SESSION_TYPE:-} == wayland || -n ${WAYLAND_DISPLAY:-} ]]; then
-  echo 'This build needs X11: sudo raspi-config > Advanced Options > Wayland > X11, then reboot.'
-  exit 1
-fi
-if [[ -z ${DISPLAY:-} ]]; then
-  echo 'Run this from a Terminal on the Pi desktop, not a plain SSH session.'
-  exit 1
-fi
+[[ -x .venv/bin/python ]] || { echo 'Run bash Setup_integrated.sh first.'; exit 1; }
+[[ -n ${DISPLAY:-} ]] || { echo 'Open the bot in a desktop/VNC session, or set DISPLAY=:1 from SSH.'; exit 1; }
 exec .venv/bin/python app.py
