@@ -10,14 +10,16 @@ sudo apt-get install -y tigervnc-standalone-server tigervnc-common openbox xterm
 tigervncpasswd
 ```
 
-Create `~/start-shiny-desktop.sh`:
+Paste this entire block into SSH to create the desktop startup script. The commands between `EOF` markers are written to the file, rather than run in your SSH session:
 
-```sh
+```bash
+cat > "$HOME/start-shiny-desktop.sh" <<'EOF'
 #!/bin/sh
 unset SESSION_MANAGER DBUS_SESSION_BUS_ADDRESS WAYLAND_DISPLAY
 export XDG_SESSION_TYPE=x11
 xterm &
 exec dbus-run-session -- openbox-session
+EOF
 ```
 
 ```bash
