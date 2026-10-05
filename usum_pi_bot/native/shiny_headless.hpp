@@ -37,7 +37,8 @@ static int shiny_headless(CaptureData* capture_data) {
     capture_data->status.battery_percentage = 100;
     capture_data->status.ac_adapter_connected = true;
     capture_data->status.requested_3d = false;
-    if (!connect(true, capture_data, nullptr, force_disables, true)) {
+    capture_data->status.connected = connect(true, capture_data, nullptr, force_disables, true);
+    if (!capture_data->status.connected) {
         std::fprintf(stderr, "Loopy connection failed: %s\n", capture_data->status.detailed_error_text.c_str());
         capture_data->status.running = false; return 3;
     }
