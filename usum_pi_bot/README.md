@@ -79,15 +79,15 @@ Each new run needs a new normal baseline. Keep Ultra Beast mode disabled for ord
 
 ## Recovery and reports
 
-The bot supervises its own feed. The Loopy helper restarts after unexpected exits or five seconds without delivering a complete frame. NTR retries its TCP connection with the saved IP and settings, and requests the stream again if video stops arriving. Actual capture interruptions create incident records and logs visible in **Recovery reports**, which can export a ZIP. NTR video outages count once until fresh frames return; control retries and initial connection attempts do not count as outages. Deliberate disconnects when closing or changing capture sources are excluded.
+The bot supervises its own feed. The Loopy helper restarts after unexpected exits or five seconds without delivering a complete frame. NTR sends one stream-start request per connection. Initial TCP connection attempts are limited to three; after the request is sent, a control disconnect or video pause does not automatically reconnect or restart the stream. Use **Reconnect capture** if the feed does not return. Actual capture interruptions create incident records and logs visible in **Recovery reports**, which can export a ZIP. NTR video outages count once until fresh frames return; control disconnects and initial connection attempts do not count as outages. Deliberate disconnects when closing or changing capture sources are excluded.
 
-A stalled feed is rejected when no fresh frame arrives within two seconds. The **Resume after capture crash** option can wait for fresh frames and retry an interrupted hunt with its baseline preserved. Automatic retry can discard an unseen shiny. If resumption is off, feed loss stops the hunt while capture continues reconnecting in the background.
+A stalled feed is rejected when no fresh frame arrives within two seconds. The **Resume after capture crash** option can wait for fresh frames and retry an interrupted hunt with its baseline preserved. Automatic retry can discard an unseen shiny. If resumption is off, feed loss stops the hunt while the video receiver continues listening.
 
 Connection chatter, console responses and stream statistics appear on **Capture diagnostics**, not in the hunt console. The diagnostics display retains the latest 500 lines; full NTR logs remain saved for diagnosis. Older NTR reports generated solely by control retries stay saved but are excluded from the interruption count.
 
-The NTR TCP control link and UDP video feed are monitored separately. A control timeout while fresh video is arriving keeps capture running, produces one warning, and retries control quietly. It does not count as a capture crash or restart a live stream. If video also stops, recovery becomes immediate.
+The NTR TCP control link and UDP video feed are monitored separately. A control timeout while fresh video is arriving keeps capture running and produces one warning. It does not count as a capture crash or trigger another TCP connection. The UDP receiver remains active so an interrupted stream can return on its own.
 
-TCP reconnection does not prove that NTR video is flowing again. Detection resumes only after receiving fresh bottom frames. These mechanisms cannot reboot a crashed console or re-enable InputRedirection.
+A successful control connection does not prove that NTR video is flowing. Detection resumes only after receiving fresh bottom frames. These mechanisms cannot reboot a crashed console or re-enable InputRedirection.
 
 **Retry failed attempts** permits up to three consecutive failed encounter attempts before stopping. A normal result clears the failure streak. No retry overrides an already measured suspected-shiny stop.
 

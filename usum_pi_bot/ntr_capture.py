@@ -173,9 +173,12 @@ class NtrCapture:
         """TCP failure does not imply loss of the independent UDP video feed."""
         if self._feed_live():
             if not self.control_warning:
-                self.emit(f'NTR control link unavailable: {error}. Bottom video is still live; continuing capture and retrying control in the background.')
+                self.emit(f'NTR control link unavailable: {error}. Bottom video is still live; continuing capture without reconnecting control.')
                 self.control_warning=True
-            return 30
+            return None if self.stream_requested else 3
+        if self.stream_requested:
+            self.emit(f'NTR control unavailable: {error}. Automatic stream restart disabled; use Reconnect capture if video does not return.')
+            return None
         self.emit(f'NTR control unavailable and no fresh video: {error}. Retrying in 3 seconds.')
         return 3
 
@@ -187,9 +190,12 @@ class NtrCapture:
             self.stop.wait(.1)
 
     def _control(self):
+        if self.stream_requested: return
+        attempts=0
         while not self.stop.is_set():
             tcp=None
             retry_delay=3
+            attempts+=1
             try:
                 if not self.control_warning:
                     self.emit(f'Connecting NTR bottom stream to {self.ip} (JPEG Compat).')
@@ -200,7 +206,7 @@ class NtrCapture:
                     tcp.sendall(control_packet(sequence,901,self.args)); sequence+=1
                     self.stream_requested=True
                     self.emit('NTR stream requested; waiting for bottom-screen frames.')
-                buffer=bytearray(); heartbeat=time.monotonic(); requested=heartbeat
+                buffer=bytearray(); heartbeat=time.monotonic()
                 while not self.stop.is_set():
                     ready,_,_=select.select([tcp],[],[],.1)
                     if ready:
@@ -220,11 +226,6 @@ class NtrCapture:
                                 self.control_warning=False
                             if header[3]==0 and message:
                                 self.emit('NTR: '+message.decode('utf-8','replace').strip()[:1000])
-                    now=time.monotonic()
-                    if now-requested>=5 and now-self.assembler.last_completion>=3:
-                        tcp.sendall(control_packet(sequence,901,self.args)); sequence=(sequence+1)&0xffffffff
-                        requested=now
-                        self.emit('No fresh NTR bottom frames; requesting the stream again.')
                     if time.monotonic()-heartbeat>=.25:
                         tcp.sendall(control_packet(sequence)); sequence=(sequence+1)&0xffffffff
                         heartbeat=time.monotonic()
@@ -234,6 +235,10 @@ class NtrCapture:
             finally:
                 self.tcp=None
                 if tcp: tcp.close()
+            if self.stream_requested or retry_delay is None: return
+            if attempts>=3:
+                self.emit('NTR initial connection failed three times; use Reconnect capture to try again.')
+                return
             self._wait_to_retry(retry_delay)
 
     def close(self):

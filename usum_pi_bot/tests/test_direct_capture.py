@@ -193,7 +193,7 @@ time.sleep(10)
             finally:backend.close()
             self.assertEqual(len(read_reports(Path(tmp)/'logs')),1)
 
-    def test_ntr_control_disconnect_reconnects_with_same_settings(self):
+    def test_ntr_video_can_arrive_after_control_disconnect_without_reconnect(self):
         from viewer_reports import read_reports
         with tempfile.TemporaryDirectory() as tmp:
             server=socket.socket();server.bind(('127.0.0.1',0));server.listen();server.settimeout(7)
@@ -203,16 +203,16 @@ time.sleep(10)
             stop=threading.Event();requests=[];errors=[];packets=jpeg_packets()
             def console():
                 try:
-                    for attempt in range(2):
-                        conn,_=server.accept();conn.settimeout(3)
-                        with conn:
-                            raw=b''
-                            while len(raw)<HEADER.size:raw+=conn.recv(HEADER.size-len(raw))
-                            requests.append(HEADER.unpack(raw))
-                            if attempt==0:continue
-                            with socket.socket(socket.AF_INET,socket.SOCK_DGRAM) as sender:
-                                for packet in packets:sender.sendto(packet,('127.0.0.1',port))
-                            stop.wait(3)
+                    conn,_=server.accept();conn.settimeout(3)
+                    with conn:
+                        raw=b''
+                        while len(raw)<HEADER.size:raw+=conn.recv(HEADER.size-len(raw))
+                        requests.append(HEADER.unpack(raw))
+                    # The independent UDP sender keeps working after TCP closes.
+                    stop.wait(.1)
+                    with socket.socket(socket.AF_INET,socket.SOCK_DGRAM) as sender:
+                        for packet in packets:sender.sendto(packet,('127.0.0.1',port))
+                    stop.wait(3)
                 except Exception as e:errors.append(e)
             thread=threading.Thread(target=console,daemon=True);thread.start()
             original=socket.create_connection;store=FrameStore()
@@ -220,8 +220,8 @@ time.sleep(10)
             try:
                 with patch('ntr_capture.socket.create_connection',side_effect=lambda address,timeout:original(('127.0.0.1',tcp_port),timeout)):
                     backend.start();store.next(timeout=7)
-                    self.assertEqual(len(requests),2)
-                    self.assertEqual(requests[0][4:11],requests[1][4:11])
+                    self.assertEqual(len(requests),1)
+                    self.assertEqual(requests[0][3],901)
                     self.assertEqual(len(read_reports(Path(tmp)/'logs')),0)
                     stop.set();backend.close()
             finally:
@@ -234,7 +234,8 @@ class NtrControlHealthTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             store=FrameStore();store.publish(Image.new('RGB',(320,240),'blue'))
             messages=[];backend=NtrCapture(store,'10.0.0.106',emit=messages.append,logs=Path(tmp))
-            self.assertEqual(backend._control_failure(socket.timeout('timed out')),30)
+            backend.stream_requested=True
+            self.assertIsNone(backend._control_failure(socket.timeout('timed out')))
             self.assertEqual(store.latest().sequence,1)
             self.assertEqual(read_reports(tmp),[])
             backend._control_failure(socket.timeout('timed out'))
@@ -248,21 +249,32 @@ class NtrControlHealthTests(unittest.TestCase):
             self.assertEqual(len(read_reports(tmp)),0)
             with self.assertRaises(ViewerUnavailable):store.latest()
 
-    def test_reconnect_does_not_restart_a_live_previously_requested_stream(self):
-        store=FrameStore();store.publish(Image.new('RGB',(320,240),'blue'))
-        backend=NtrCapture(store,'10.0.0.106');backend.stream_requested=True
-        fake=Mock();fake.recv.return_value=control_packet(0)
-        sent=[]
-        def send(data):
-            sent.append(HEADER.unpack(data)[3]);backend.stop.set()
-        fake.sendall.side_effect=send
-        with patch.object(backend,'_feed_live',return_value=True), \
-             patch('ntr_capture.socket.create_connection',return_value=fake), \
-             patch('ntr_capture.select.select',return_value=([fake],[],[])), \
-             patch('ntr_capture.time.monotonic',side_effect=__import__('itertools').chain([0],__import__('itertools').repeat(1))):
+    def test_no_control_reconnect_after_stream_requested_even_if_video_stale(self):
+        backend=NtrCapture(FrameStore(),'10.0.0.106');backend.stream_requested=True
+        with patch('ntr_capture.socket.create_connection') as connect:
             backend._control()
-        self.assertEqual(sent,[0])  # Heartbeat only; no new stream command 901.
-        self.assertEqual(store.latest().sequence,1)
+        connect.assert_not_called()
+
+    def test_video_gap_does_not_resend_stream_command_and_closed_tcp_does_not_retry(self):
+        backend=NtrCapture(FrameStore(),'10.0.0.106')
+        fake=Mock();fake.recv.return_value=b''
+        sent=[]
+        fake.sendall.side_effect=lambda data: sent.append(HEADER.unpack(data)[3])
+        with patch('ntr_capture.socket.create_connection',return_value=fake) as connect, \
+             patch('ntr_capture.select.select',side_effect=[([],[],[]),([fake],[],[])]), \
+             patch('ntr_capture.time.monotonic',side_effect=__import__('itertools').chain([0],__import__('itertools').repeat(60))), \
+             patch.object(backend,'_wait_to_retry') as retry:
+            backend._control()
+        self.assertEqual(sent,[901,0])
+        self.assertEqual(connect.call_count,1)
+        retry.assert_not_called()
+
+    def test_initial_connection_attempts_are_bounded(self):
+        backend=NtrCapture(FrameStore(),'10.0.0.106')
+        with patch('ntr_capture.socket.create_connection',side_effect=OSError('offline')) as connect, \
+             patch.object(backend,'_wait_to_retry'):
+            backend._control()
+        self.assertEqual(connect.call_count,3)
 
     def test_quiet_retry_is_interrupted_when_video_has_stalled(self):
         backend=NtrCapture(FrameStore(),'10.0.0.106')
