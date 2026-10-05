@@ -100,11 +100,31 @@ class DirectFrameTests(unittest.TestCase):
             service=CaptureService(tmp)
             service.connect('NTR wireless','10.0.0.106',40,10)
             self.assertEqual(ntr.call_args.args[1:4],('10.0.0.106',40,10))
+            service.store.publish(Image.new('RGB',(320,240)))
             service.connect('NTR wireless','10.0.0.106',40,10)
             self.assertEqual(ntr.call_count,1)
             service.connect('Loopy USB','not-an-ip',40,10)
             self.assertEqual(usb.call_count,1); ntr.return_value.close.assert_called_once()
             service.close()
+
+    def test_manual_connect_retries_a_failed_startup_for_both_sources(self):
+        for source in ('NTR wireless', 'Loopy USB'):
+            with self.subTest(source=source), tempfile.TemporaryDirectory() as tmp, \
+                 patch('capture_service.NtrCapture') as ntr, patch('capture_service.LoopyCapture') as usb:
+                factory=ntr if source=='NTR wireless' else usb
+                service=CaptureService(tmp)
+                service.connect(source,'10.0.0.106')
+                # No frames arrived before startup gave up.
+                service.connect(source,'10.0.0.106')
+                self.assertEqual(factory.call_count,2)
+                factory.return_value.close.assert_called_once()
+                service.store.publish(Image.new('RGB',(320,240)))
+                service.connect(source,'10.0.0.106')
+                self.assertEqual(factory.call_count,2)
+                service.store.invalidate('Feed timed out')
+                service.connect(source,'10.0.0.106')
+                self.assertEqual(factory.call_count,3)
+                service.close()
 
     def test_real_tcp_control_and_udp_jpeg_receiver(self):
         tcp=socket.socket(); tcp.bind(('127.0.0.1',0)); tcp.listen()
