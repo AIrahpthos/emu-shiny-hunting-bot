@@ -1,4 +1,5 @@
 """Own one selected bottom feed for both preview and hunt detection."""
+import os
 from pathlib import Path
 from frame_feed import FrameStore
 from capture_linux import ViewerUnavailable
@@ -9,6 +10,7 @@ from loopy_capture import LoopyCapture
 class CaptureService:
     def __init__(self, root, emit=lambda _:None):
         self.root=Path(root); self.emit=emit
+        self.ntr_receive_only=os.environ.get("SHINY_NTR_RECEIVE_ONLY")=="1"
         self.store=FrameStore(); self.backend=None; self.config=None
 
     def connect(self, source, ip='', quality=40, bandwidth=10):
@@ -23,7 +25,7 @@ class CaptureService:
                 pass
         self.close()
         if source=='NTR wireless':
-            backend=NtrCapture(self.store,ip,quality,bandwidth,self.emit,logs=self.root/"out/capture-incidents")
+            backend=NtrCapture(self.store,ip,quality,bandwidth,self.emit,logs=self.root/"out/capture-incidents",receive_only=self.ntr_receive_only)
         else:
             backend=LoopyCapture(self.store,self.root/'native/bin/cc3dsfs',self.root/'out/capture-incidents',self.emit)
         try: backend.start()

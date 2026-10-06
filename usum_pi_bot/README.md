@@ -124,3 +124,36 @@ Tests include frame freshness, latest-only delivery, JPEG fragment ordering and 
 ## Attribution
 
 The USB helper uses [cc3dsfs](https://github.com/Lorenzooone/cc3dsfs), pinned to 1.3.0.1, with a direct bottom-frame mode. NTR protocol fields were checked against [NTRViewer-HR](https://github.com/xzn/ntrviewer-hr). Original emulator code is by [Damon Murdoch](https://github.com/damon-murdoch/emu-shiny-hunting-bot). Included project source is MIT; native dependency licences are preserved by the source build.
+
+## NTR receive-only diagnostic
+
+To compare the integrated detector with an externally started NTR stream, launch
+with `SHINY_NTR_RECEIVE_ONLY=1`. The title identifies diagnostic mode. The bot
+receives bottom frames on UDP port 8001 and opens no NTR TCP connection. It sends
+no heartbeats or stream-start commands. InputRedirection remains active for the
+hunt controls.
+
+1. Close the integrated bot so it releases UDP port 8001.
+2. Start the stream with the standalone NTR viewer, using its default UDP port
+   8001, the same 3DS IP, bottom-screen capture and the desired quality/bandwidth.
+3. After the viewer displays the feed, close the viewer to release the port.
+4. Start the integrated bot in receive-only mode:
+
+   ```bash
+   SHINY_NTR_RECEIVE_ONLY=1 bash Launch.sh
+   ```
+
+   From SSH, replace `:1` if your VNC desktop uses a different display:
+
+   ```bash
+   nohup env DISPLAY=:1 SHINY_NTR_RECEIVE_ONLY=1 bash Launch.sh > "$HOME/shiny-receive-only.log" 2>&1 < /dev/null &
+   ```
+
+5. Select NTR wireless, enter the same 3DS IP and connect capture. Confirm the
+   preview receives frames, then start the hunt normally.
+
+Quality and bandwidth settings in the bot do not apply in this mode; the external
+viewer establishes them. Reconnect capture restarts the receiver only. If the
+console is rebooted, establish the stream again with the standalone viewer before
+restarting this test. This mode requires no manual encounter resets. Close the
+bot and launch without the environment variable to return to normal NTR control.

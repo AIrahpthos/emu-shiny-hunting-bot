@@ -81,11 +81,12 @@ class JpegAssembler:
 
 
 class NtrCapture:
-    def __init__(self, store, ip, quality=40, bandwidth=10, emit=lambda _:None, port=8001, logs=None):
+    def __init__(self, store, ip, quality=40, bandwidth=10, emit=lambda _:None, port=8001, logs=None, receive_only=False):
         self.store=store
         self.ip=str(ipaddress.IPv4Address(ip))
         self.args=stream_args(quality,bandwidth,port)
         self.callback=emit; self.port=port
+        self.receive_only=receive_only
         self.logs=Path(logs) if logs else None
         self.log_lock=threading.Lock(); self.log_path=None
         if self.logs:
@@ -113,7 +114,11 @@ class NtrCapture:
         except Exception:
             udp.close(); raise
         self.sock=udp
-        self.threads=[threading.Thread(target=self._video,daemon=True),threading.Thread(target=self._control,daemon=True)]
+        self.threads=[threading.Thread(target=self._video,daemon=True)]
+        if self.receive_only:
+            self.emit(f'NTR RECEIVE-ONLY diagnostic: listening on UDP {self.port}; no TCP connection, heartbeats or stream commands. Start the stream externally. Quality and bandwidth are controlled by the external viewer.')
+        else:
+            self.threads.append(threading.Thread(target=self._control,daemon=True))
         for thread in self.threads: thread.start()
 
     def _video(self):
@@ -190,7 +195,7 @@ class NtrCapture:
             self.stop.wait(.1)
 
     def _control(self):
-        if self.stream_requested: return
+        if self.receive_only or self.stream_requested: return
         attempts=0
         while not self.stop.is_set():
             tcp=None

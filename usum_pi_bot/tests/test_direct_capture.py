@@ -126,6 +126,35 @@ class DirectFrameTests(unittest.TestCase):
                 self.assertEqual(factory.call_count,3)
                 service.close()
 
+    def test_receive_only_delivers_udp_frames_without_any_tcp_connection(self):
+        probe=socket.socket(socket.AF_INET,socket.SOCK_DGRAM)
+        probe.bind(('127.0.0.1',0));port=probe.getsockname()[1];probe.close()
+        store=FrameStore();messages=[]
+        backend=NtrCapture(store,'127.0.0.1',port=port,emit=messages.append,receive_only=True)
+        with patch('ntr_capture.socket.create_connection') as connect:
+            try:
+                backend.start()
+                # Guard against accidental control calls as well as thread startup.
+                backend._control()
+                with socket.socket(socket.AF_INET,socket.SOCK_DGRAM) as sender:
+                    for packet in jpeg_packets():sender.sendto(packet,('127.0.0.1',port))
+                frame=store.next(timeout=2)
+                self.assertEqual(frame.image.size,(320,240))
+                self.assertEqual(len(backend.threads),1)
+                connect.assert_not_called()
+                self.assertTrue(any('RECEIVE-ONLY' in message for message in messages))
+            finally:backend.close()
+        self.assertTrue(all(not t.is_alive() for t in backend.threads))
+
+    def test_receive_only_environment_is_passed_to_ntr_backend(self):
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch.dict('os.environ',{'SHINY_NTR_RECEIVE_ONLY':'1'}), \
+             patch('capture_service.NtrCapture') as ntr:
+            service=CaptureService(tmp)
+            service.connect('NTR wireless','10.0.0.106')
+            self.assertTrue(ntr.call_args.kwargs['receive_only'])
+            service.close()
+
     def test_real_tcp_control_and_udp_jpeg_receiver(self):
         tcp=socket.socket(); tcp.bind(('127.0.0.1',0)); tcp.listen()
         tcp_port=tcp.getsockname()[1]

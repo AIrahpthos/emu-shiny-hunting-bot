@@ -27,6 +27,8 @@ class App:
         root.title('USUM Pi Shiny Hunter — integrated capture')
         root.geometry('780x750+10+10')
         self.capture_service=CaptureService(ROOT,self.emit_capture)
+        if self.capture_service.ntr_receive_only:
+            root.title("USUM Pi Shiny Hunter — NTR RECEIVE-ONLY diagnostic")
         self.preview_sequence=0
         self.capture_connect_thread=None
         self.stop = threading.Event()
