@@ -12,7 +12,7 @@ It resets after normal encounters and stops when encounter timing suggests a shi
 | Windows | [Windows installation and user guide](usum_hardware_bot/README.md) | Older gradient-reference save-load detection and basic encounter timing; does not include the Pi recovery or transition-skipping features |
 | Emulator | [Original emulator instructions](README.emulator.md) | Damon's original emulator bot |
 
-**The Raspberry Pi version is the most complete hardware version.** Raspberry Pi 4 is the tested setup, using a Loopy New 3DS capture board or NTRViewer-HR. For operation without a monitor, follow the [headless desktop guide](usum_pi_bot/HEADLESS.md); you can control the desktop from an iPad over VNC.
+**The Raspberry Pi version is the most complete hardware version.** Raspberry Pi 4 is the tested setup, using a Loopy New 3DS capture board or NTRViewer-HR. For operation without a monitor, follow the [headless desktop guide](usum_pi_bot/HEADLESS.md); you can control the desktop from a computer, tablet or phone using a VNC client.
 
 ## What you need
 

@@ -1,6 +1,6 @@
-# Headless Pi desktop from an iPad
+# Headless Raspberry Pi desktop over VNC
 
-The tested setup uses Raspberry Pi OS/Debian 13, SSH, TigerVNC and Openbox. An X11 virtual desktop keeps both capture windows visible without an HDMI monitor. VNC viewer access from an iPad is sufficient for setup and control; Termius SSH/SFTP handles commands and downloads.
+The tested setup uses Raspberry Pi OS/Debian 13, SSH, TigerVNC and Openbox. An X11 virtual desktop keeps both capture windows visible without an HDMI monitor. Connect from a computer, tablet or phone using a VNC client that supports password authentication. Use an SSH client for terminal commands and an SFTP client to transfer files.
 
 ## Desktop installation
 
@@ -27,7 +27,7 @@ chmod +x ~/start-shiny-desktop.sh
 tigervncserver :1 -localhost no -SecurityTypes VncAuth -geometry 1280x800 -depth 24 -xstartup "$HOME/start-shiny-desktop.sh"
 ```
 
-Connect the iPad VNC viewer to the Pi’s LAN IP, port **5901** (display `:1`), using the VNC password. Keep this service on your local network; do not forward its port through your router.
+Connect your VNC client to the Pi’s LAN IP, port **5901** (display `:1`), using the VNC password. Keep this service on your local network; do not forward its port through your router.
 
 ## Capture and bot startup
 
@@ -87,4 +87,4 @@ Use the 1280×800 desktop. The supervisor places the top viewer at approximately
 
 The USB viewer’s audio is disabled to avoid repeated audio-device initialization errors in the virtual desktop.
 
-Persistent diagnostic output is in the installation’s `out/` directory. Viewer incident ZIPs can be downloaded from Termius SFTP. `~/capture-viewer.log` links to the current viewer log, and `~/capture-supervisor.log` records supervisor output.
+Persistent diagnostic output is in the installation’s `out/` directory. Viewer incident ZIPs can be downloaded using an SFTP client. `~/capture-viewer.log` links to the current viewer log, and `~/capture-supervisor.log` records supervisor output.
