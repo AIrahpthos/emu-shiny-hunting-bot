@@ -202,16 +202,13 @@ class NtrCapture:
                 tcp=socket.create_connection((self.ip,8000),timeout=3)
                 self.tcp=tcp; tcp.settimeout(1)
                 sequence=0
-                if not self.stream_requested or not self._feed_live():
-                    tcp.sendall(control_packet(sequence,901,self.args)); sequence+=1
-                    self.stream_requested=True
-                    self.emit('NTR stream requested; waiting for bottom-screen frames.')
-                buffer=bytearray(); heartbeat=time.monotonic()
+                buffer=bytearray(); heartbeat=time.monotonic(); partial_since=None
                 while not self.stop.is_set():
                     ready,_,_=select.select([tcp],[],[],.1)
                     if ready:
                         chunk=tcp.recv(65536)
                         if not chunk: raise ConnectionError('NTR control connection closed.')
+                        if not buffer: partial_since=time.monotonic()
                         buffer.extend(chunk)
                         while len(buffer)>=HEADER.size:
                             header=HEADER.unpack_from(buffer)
@@ -226,9 +223,22 @@ class NtrCapture:
                                 self.control_warning=False
                             if header[3]==0 and message:
                                 self.emit('NTR: '+message.decode('utf-8','replace').strip()[:1000])
-                    if time.monotonic()-heartbeat>=.25:
+                        if not buffer: partial_since=None
+                    now=time.monotonic()
+                    # Match NTRViewer-HR: complete incoming packets before sending.
+                    # A truncated response must not accumulate more control traffic.
+                    if buffer:
+                        if now-partial_since>=2:
+                            raise TimeoutError('Incomplete NTR control response for two seconds.')
+                        continue
+                    if now-heartbeat>=.25:
                         tcp.sendall(control_packet(sequence)); sequence=(sequence+1)&0xffffffff
-                        heartbeat=time.monotonic()
+                        heartbeat=now
+                        if not self.stream_requested:
+                            # The working viewer sends heartbeat seq=0, then start seq=1.
+                            tcp.sendall(control_packet(sequence,901,self.args)); sequence=(sequence+1)&0xffffffff
+                            self.stream_requested=True
+                            self.emit('NTR stream requested after initial heartbeat; waiting for bottom-screen frames.')
             except (OSError,ValueError) as e:
                 if not self.stop.is_set():
                     retry_delay=self._control_failure(e)

@@ -136,9 +136,10 @@ class DirectFrameTests(unittest.TestCase):
             try:
                 connection,_=tcp.accept(); connection.settimeout(2)
                 with connection:
-                    data=b''
-                    while len(data)<HEADER.size: data+=connection.recv(HEADER.size-len(data))
-                    got.append(HEADER.unpack(data))
+                    for _ in range(2):
+                        data=b''
+                        while len(data)<HEADER.size: data+=connection.recv(HEADER.size-len(data))
+                        got.append(HEADER.unpack(data))
                     # Deliberately split a valid heartbeat response across TCP reads.
                     response=control_packet(0)
                     connection.sendall(response[:9]); connection.sendall(response[9:])
@@ -154,8 +155,8 @@ class DirectFrameTests(unittest.TestCase):
                 backend.start()
                 frame=store.next(timeout=3)
                 self.assertEqual(frame.image.size,(320,240))
-                self.assertEqual(got[0][3],901)
-                self.assertEqual(got[0][8],udp_port)
+                self.assertEqual([(p[1],p[3]) for p in got],[(0,0),(1,901)])
+                self.assertEqual(got[1][8],udp_port)
                 stop.set(); backend.close()
         finally:
             stop.set(); backend.close(); tcp.close(); thread.join(3)
@@ -225,9 +226,10 @@ time.sleep(10)
                 try:
                     conn,_=server.accept();conn.settimeout(3)
                     with conn:
-                        raw=b''
-                        while len(raw)<HEADER.size:raw+=conn.recv(HEADER.size-len(raw))
-                        requests.append(HEADER.unpack(raw))
+                        for _ in range(2):
+                            raw=b''
+                            while len(raw)<HEADER.size:raw+=conn.recv(HEADER.size-len(raw))
+                            requests.append(HEADER.unpack(raw))
                     # The independent UDP sender keeps working after TCP closes.
                     stop.wait(.1)
                     with socket.socket(socket.AF_INET,socket.SOCK_DGRAM) as sender:
@@ -240,8 +242,7 @@ time.sleep(10)
             try:
                 with patch('ntr_capture.socket.create_connection',side_effect=lambda address,timeout:original(('127.0.0.1',tcp_port),timeout)):
                     backend.start();store.next(timeout=7)
-                    self.assertEqual(len(requests),1)
-                    self.assertEqual(requests[0][3],901)
+                    self.assertEqual([(p[1],p[3]) for p in requests],[(0,0),(1,901)])
                     self.assertEqual(len(read_reports(Path(tmp)/'logs')),0)
                     stop.set();backend.close()
             finally:
@@ -285,9 +286,45 @@ class NtrControlHealthTests(unittest.TestCase):
              patch('ntr_capture.time.monotonic',side_effect=__import__('itertools').chain([0],__import__('itertools').repeat(60))), \
              patch.object(backend,'_wait_to_retry') as retry:
             backend._control()
-        self.assertEqual(sent,[901,0])
+        self.assertEqual(sent,[0,901])
         self.assertEqual(connect.call_count,1)
         retry.assert_not_called()
+
+    def test_no_heartbeat_while_response_is_partial_and_no_restart_on_timeout(self):
+        backend=NtrCapture(FrameStore(),'10.0.0.106')
+        fake=Mock();fake.recv.return_value=control_packet(0)[:9]
+        sent=[]
+        fake.sendall.side_effect=lambda data: sent.append(HEADER.unpack(data)[3])
+        clock=[0]
+        def advance(*args):
+            clock[0]+=.5
+            return ([],[],[]) if clock[0]==.5 else ([fake],[],[])
+        # First tick sends heartbeat + stream start. Later ticks contain only
+        # fragments, so control traffic stops and the session eventually closes.
+        with patch('ntr_capture.socket.create_connection',return_value=fake) as connect, \
+             patch('ntr_capture.select.select',side_effect=advance), \
+             patch('ntr_capture.time.monotonic',side_effect=lambda:clock[0]), \
+             patch.object(backend,'_wait_to_retry') as retry:
+            backend._control()
+        self.assertEqual(sent,[0,901])
+        self.assertEqual(connect.call_count,1)
+        retry.assert_not_called()
+        fake.close.assert_called_once()
+
+    def test_heartbeat_resumes_only_after_complete_fragmented_response(self):
+        backend=NtrCapture(FrameStore(),'10.0.0.106')
+        fake=Mock();response=control_packet(0)
+        fake.recv.side_effect=[response[:9],response[9:],b'']
+        sent=[];clock=[0]
+        fake.sendall.side_effect=lambda data: sent.append((clock[0],HEADER.unpack(data)[1:4]))
+        def advance(*args):
+            clock[0]+=.5
+            return ([],[],[]) if clock[0]==.5 else ([fake],[],[])
+        with patch('ntr_capture.socket.create_connection',return_value=fake), \
+             patch('ntr_capture.select.select',side_effect=advance), \
+             patch('ntr_capture.time.monotonic',side_effect=lambda:clock[0]):
+            backend._control()
+        self.assertEqual(sent,[(.5,(0,0,0)),(.5,(1,0,901)),(1.5,(2,0,0))])
 
     def test_initial_connection_attempts_are_bounded(self):
         backend=NtrCapture(FrameStore(),'10.0.0.106')
