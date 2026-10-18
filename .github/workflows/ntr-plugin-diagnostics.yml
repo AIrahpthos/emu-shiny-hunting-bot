@@ -1,0 +1,50 @@
+name: NTR plugin diagnostics
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ntr-plugin-diagnostics]
+    paths:
+      - 'diagnostics/ntr_hr/**'
+      - '.github/workflows/ntr-plugin-diagnostics.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    container:
+      image: xzn92/ntr-hr-build-environment:2026-08-02
+    steps:
+      - uses: actions/checkout@v4
+      - name: Locate Rust toolchain
+        shell: bash
+        run: |
+          if [[ ! -e "$HOME/.rustup" ]]; then
+            ln -s /root/.rustup "$HOME/.rustup"
+          fi
+      - name: Test diagnostic writer and parser
+        run: python3 -m unittest discover -s diagnostics/ntr_hr/tests -v
+      - name: Build pinned diagnostic console software
+        shell: bash
+        run: bash diagnostics/ntr_hr/build.sh "$RUNNER_TEMP/ntr-plugin-build"
+      - name: Preserve build metadata
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p build-environment
+          command -v clang > build-environment/toolchain.txt || true
+          clang --version >> build-environment/toolchain.txt || true
+          rustc --version >> build-environment/toolchain.txt || true
+          git diff --no-index diagnostics/ntr_hr/upstream/main_pm.c "$RUNNER_TEMP/ntr-plugin-build/ntr-hr/source/pm/main_pm.c" > build-environment/instrumentation.diff || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ntr-plugin-diagnostic-source-and-symbols
+          path: |
+            ${{ runner.temp }}/ntr-plugin-build/artifacts/
+            build-environment/
+          if-no-files-found: warn
+          retention-days: 30
