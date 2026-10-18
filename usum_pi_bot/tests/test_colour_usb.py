@@ -33,5 +33,5 @@ class USBColourTests(unittest.TestCase):
              patch('app.measure',side_effect=EncounterStartTimeout('missing battle')):
             bot.run('hunt','10.0.0.106',1,ColourDetector(),{'capture_source':'Loopy USB','colour_hz':30,'load_limit':16,'forward':0,'threshold':1.1,'adaptive_reset':True},True,(.5,.5))
         self.assertEqual(load.call_count,3)
-        self.assertEqual(load.call_args.kwargs,{'timeout':16,'hz':30})
+        self.assertEqual(load.call_args.kwargs,{'timeout':16,'hz':30,'capture_grace':0})
         self.assertTrue(any(kind=='alert' and 'three attempts' in message for kind,message in list(bot.events.queue)))

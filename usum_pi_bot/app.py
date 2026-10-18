@@ -388,7 +388,8 @@ class App:
                     reset_start=time.monotonic()
                     loaded=load_save(controller,cap.grab,refs,self.stop,self.emit,
                                      timeout=o.get('load_limit',o.get('ntr_load_limit',16)),
-                                     hz=o.get('colour_hz',o.get('ntr_hz',30)))
+                                     hz=o.get('colour_hz',o.get('ntr_hz',30)),
+                                     capture_grace=30 if o.get('capture_source')=='NTR wireless' else 0)
                     stats.record(loaded)
                     if loaded.gradient_seen:
                         self.emit(f'Observed load #{stats.observed_count}; blue → black → red confirmed.')
@@ -476,7 +477,12 @@ class App:
                     controller.release()
                     if self.stop.is_set(): raise Stopped()
                     if not o.get('auto_recover',False): raise
+                    consecutive_failures+=1
+                    stats.record_failure(attempts,phase,e,consecutive_failures)
                     self.emit(f'CAPTURE LOST during {phase}: {e}. Controls released; waiting for fresh capture frames.')
+                    if consecutive_failures>=3:
+                        self.events.put(('alert','repeated capture failure: three attempts in a row; inspect the game and capture feed'))
+                        return
                     if phase=='unclassified encounter':
                         self.emit('Interrupted encounter is unclassified. Automatic retry may reset an unseen shiny.')
                     cap.close(); cap=None

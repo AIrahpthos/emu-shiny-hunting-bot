@@ -24,7 +24,7 @@ class NTRHuntTests(unittest.TestCase):
         self.assertFalse(any('Observed load' in call.args[0] for call in bot.emit.call_args_list))
         self.assertTrue(bot.stop.is_set())
         self.assertTrue(any(kind=='alert' and 'three attempts' in text for kind,text in list(bot.events.queue)))
-        self.assertEqual(load.call_args.kwargs,{'timeout':16,'hz':60})
+        self.assertEqual(load.call_args.kwargs,{'timeout':16,'hz':60,'capture_grace':30})
 
     def test_fallback_still_stops_for_measured_suspected_shiny(self):
         bot=self.bot()

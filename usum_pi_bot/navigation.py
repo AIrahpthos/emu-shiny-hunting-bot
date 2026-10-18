@@ -4,6 +4,7 @@ import threading
 from dataclasses import dataclass
 from PIL import Image
 from core import Stopped
+from capture_linux import ViewerUnavailable
 
 @dataclass
 class LoadResult:
@@ -99,11 +100,13 @@ class _StartupTapper:
         if self.error is not None: raise self.error
 
 
-def load_save(controller,grab,refs,stop,emit,timeout=16,learned_limits=None,hz=30):
+def load_save(controller,grab,refs,stop,emit,timeout=16,learned_limits=None,hz=30,capture_grace=0):
     """Sample independently of input; try an encounter after a missed sequence."""
     if hz not in (10,30,60): raise ValueError('Check rate must be 10, 30 or 60 Hz.')
     if not 0<timeout<=45: raise ValueError('Loading limit must be between 0 and 45 seconds.')
     start=time.monotonic()
+    deadline=start+timeout
+    gap_budget=capture_grace
     phase='ocean'
     stable=0
     score=100.
@@ -114,11 +117,34 @@ def load_save(controller,grab,refs,stop,emit,timeout=16,learned_limits=None,hz=3
     if stop.is_set(): raise Stopped()
     tapper.start()
     try:
-        while time.monotonic()-start<timeout:
+        while time.monotonic()<deadline:
             if stop.is_set(): raise Stopped()
             if tapper.error is not None: raise tapper.error
             sample_start=time.monotonic()
-            image=grab()
+            gap_start=None
+            while True:
+                if stop.is_set(): raise Stopped()
+                try:
+                    image=grab()
+                    break
+                except ViewerUnavailable:
+                    if capture_grace<=0: raise
+                    if gap_start is None:
+                        gap_start=sample_start
+                        stable=0
+                        tapper.paused.set()
+                        controller.release()
+                        emit('NTR video interrupted during loading. Startup input paused; waiting for video without sending another reset.')
+                    if time.monotonic()-gap_start>=gap_budget:
+                        raise ViewerUnavailable('NTR loading video did not return within the startup capture grace period.')
+                    if stop.wait(.05): raise Stopped()
+            if gap_start is not None:
+                waited=time.monotonic()-gap_start
+                gap_budget-=waited
+                if gap_budget<0:
+                    raise ViewerUnavailable('NTR startup capture grace period exhausted.')
+                deadline+=waited
+                emit(f'NTR video restored after {waited:.2f}s; continuing the same loading attempt while waiting for {phase}.')
             fractions=refs.fractions(image)
             score=100*(1-fractions['red'])
             matched=refs.classify(fractions)[phase]
