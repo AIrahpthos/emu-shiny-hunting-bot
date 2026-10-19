@@ -53,7 +53,7 @@ static void ntrTraceBegin(Handle process) {
         if (res != 0) { ntrTraceClose(); return; }
         ntrTraceOffset = 0;
     }
-    ntrTrace("begin", 0, process, 0, "ntr-hr-v0.3.8.2-plugin-trace-v1");
+    ntrTrace("begin", 0, process, 0, "ntr-hr-v0.3.8.2-safe-title-v2");
 }
 
 static void ntrTraceName(const u16 *name) {

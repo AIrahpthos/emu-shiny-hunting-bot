@@ -1,10 +1,12 @@
 # NTR-HR plugin-loading diagnostics
 
-Development instrumentation for NTR-HR v0.3.8.2. This is **not a confirmed fix**
+Development instrumentation and candidate title-lookup correction for NTR-HR
+v0.3.8.2. This is **not a confirmed fix**
 for USUM reset crashes. It records the console-side loading path so that another
 failure can be investigated with stage information and matching build symbols.
-It does not modify the bot, capture receiver, network settings, plugin contents,
-or which plugins NTR chooses to load. Do not install it over an ongoing hunt.
+It does not modify the bot, capture receiver, network settings or plugin contents.
+Version 2 changes PM title lookup to Luma GetProcessInfo type 0x10001 and skips
+NTR injection when that query fails; the original process-launch call still runs. Do not install it over an ongoing hunt.
 
 ## What is recorded
 
@@ -80,8 +82,39 @@ whether any `.plg` file is actually found and read.
 Audit of the source found privileged raw handle-table access in title lookup,
 temporary changes to kernel process identity during allocation, and several
 silent file-loading failures. These are investigation targets, not demonstrated
-root causes. This diagnostic deliberately avoids changing those behaviours so
-that stage records can inform a narrower correction.
+root causes. Version 1 recorded those behaviours without changing them. Version 2 changes only
+the PM title-lookup path, as described below.
 
 The source fixture is from xzn/ntr-hr, derived from cell9's NTR, GPL version 2.
 This directory's diagnostic changes are provided under GPL-2.0-only; see LICENSE.
+
+## Version 2: validated PM title lookup
+
+The supplied trace ended at `title-enter` for process handle `03e00043`, with no
+`title-exit`. The 519 preceding completed launch callbacks comprised 173 game
+launches and 346 system-process launches. No plugin files were recorded. The new
+PM dump faults at `FFF8F044` in supervisor mode with prefetch permission fault
+status `0xF`; its return address remains `FFF1DDF8`. This localises the observed
+stop to the interval containing title lookup, without proving where any earlier
+corruption originated.
+
+The upstream helper reads a handle-table entry and two kernel structures through
+raw privileged memory operations. Version 2 replaces that call **in the PM launch
+hook only** with Luma's GetProcessInfo extension `0x10001`. Luma validates the
+process handle and retains a reference while reading the title ID. Failure clears
+the title output, records the error and skips NTR injection for that process; it
+does not suppress the original process launch. There is no fallback to raw memory
+lookup. Other NTR users of the upstream helper remain unchanged.
+
+This requires Luma3DS support for that extension. If title queries fail, streaming
+may not receive game-PID updates; repeated nonzero `title-exit` results should be
+reported rather than treated as successful validation. This is a candidate repair,
+not a demonstrated hardware fix. Logging overhead remains present.
+
+Install `BootNTRSelector-NTR-Safe-Title-v2.cia` through FBI, replacing the diagnostic
+v1 launcher, then reboot and launch NTR. Retain the same NFC patch, input
+redirection and streaming configuration for comparison. Preserve the next crash
+dump and `/ntr-plugin-trace.log` together. Existing log entries are appended; the
+begin checkpoint identifies `ntr-hr-v0.3.8.2-safe-title-v2`.
+
+API reference: https://github.com/LumaTeam/Luma3DS/blob/master/k11_extension/source/svc/GetProcessInfo.c

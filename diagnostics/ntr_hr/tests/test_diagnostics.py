@@ -58,6 +58,41 @@ class ReportTests(unittest.TestCase):
 
 @unittest.skipUnless(shutil.which('gcc'), 'Host C compiler unavailable')
 class NativeTraceTests(unittest.TestCase):
+    def test_safe_title_success_failure_and_no_raw_lookup(self):
+        source = r'''
+#include <stdint.h>
+#include <assert.h>
+typedef uint32_t u32, Handle;
+typedef uint64_t u64;
+typedef int64_t s64;
+static u32 reply;
+static u32 svcGetProcessInfo(s64 *out, Handle process, u32 type) {
+ assert(process == 0x03e00043); assert(type == 0x10001);
+ *out = (s64)UINT64_C(0x00040000001b5100);
+ return reply;
+}
+#include "HEADER"
+int main(void) {
+ u32 tid[2] = {0xdeadbeef,0xdeadbeef};
+ assert(ntrGetProcessTitle(0x03e00043,tid)==0);
+ assert(tid[0]==0x001b5100 && tid[1]==0x00040000);
+ reply=0xd8e007f7;
+ assert(ntrGetProcessTitle(0x03e00043,tid)==reply);
+ assert(tid[0]==0 && tid[1]==0);
+ return 0;
+}
+'''.replace('HEADER',str(ROOT / 'ntr_safe_title.h'))
+        with tempfile.TemporaryDirectory() as folder:
+            src = Path(folder) / 'title.c'
+            exe = Path(folder) / 'title'
+            src.write_text(source)
+            subprocess.run(['gcc','-std=c11','-Wall','-Wextra','-Werror',str(src),'-o',str(exe)],check=True,capture_output=True)
+            subprocess.run([str(exe)],check=True,timeout=5)
+        patched = module('apply_patch').instrument((ROOT / 'upstream/main_pm.c').read_text())
+        self.assertNotIn('getProcessTIDByHandle(hGameProcess, tid)',patched)
+        self.assertIn('if (traceTitleResult != 0) return traceTitleResult;',patched)
+        self.assertIn('((svcRunTypeDef)svcRunHook.callCode)(hProcess, startInfo)',patched)
+
     def test_durable_records_rotation_and_write_failure(self):
         source = r'''
 #include <stdint.h>

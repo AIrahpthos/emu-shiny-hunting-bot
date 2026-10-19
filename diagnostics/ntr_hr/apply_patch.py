@@ -16,7 +16,7 @@ def instrument(source):
         source = source.replace(old, new, 1)
 
     change('static FS_Archive sdmcArchive;',
-           'static FS_Archive sdmcArchive;\n#include "ntr_plugin_trace.h"')
+           'static FS_Archive sdmcArchive;\n#include "ntr_plugin_trace.h"\n#include "ntr_safe_title.h"')
     change('Handle file = rtOpenFile16(plgPath);',
            'ntrTraceName(name);\n\tHandle file = rtOpenFile16(plgPath);')
     change('if (file == 0) {\n\t\treturn;\n\t}',
@@ -56,8 +56,9 @@ def instrument(source):
 
     change('getProcessTIDByHandle(hGameProcess, tid);',
            'ntrTrace("title-enter", 0, hGameProcess, 0, "-");\n\t'
-           'u32 traceTitleResult = getProcessTIDByHandle(hGameProcess, tid);\n\t'
-           'ntrTrace("title-exit", traceTitleResult, tid[1], tid[0], "-");')
+           'u32 traceTitleResult = ntrGetProcessTitle(hGameProcess, tid);\n\t'
+           'ntrTrace("title-exit", traceTitleResult, tid[1], tid[0], "luma-getprocessinfo");\n\t'
+           'if (traceTitleResult != 0) return traceTitleResult;')
     change('rpSetGamePid(pid);',
            'ntrTrace("pid-update-enter", 0, pid, 0, "-");\n\t\trpSetGamePid(pid);\n\t\t'
            'ntrTrace("pid-update-exit", 0, pid, 0, "-");')
@@ -88,7 +89,8 @@ def main():
     changed = instrument(original)
     target.write_text(changed)
     (args.source_tree / 'include/ntr_plugin_trace.h').write_bytes((HERE / 'ntr_plugin_trace.h').read_bytes())
-    print('Applied plugin trace v1; source SHA256:', hashlib.sha256(changed.encode()).hexdigest())
+    (args.source_tree / 'include/ntr_safe_title.h').write_bytes((HERE / 'ntr_safe_title.h').read_bytes())
+    print('Applied safe title lookup v2; source SHA256:', hashlib.sha256(changed.encode()).hexdigest())
 
 
 if __name__ == '__main__':
