@@ -35,19 +35,23 @@ static u32 ntrReadStates(u32 *pidOut, u32 tid[2]) {
         tid[1] = (u32)(id >> 32);
         for (u32 field = 0; field < 3; ++field) {
             u32 address = ntrStateAddresses[field];
+            /* The menu candidate is two bytes into a word. DMA from an
+             * aligned address, then select the original four bytes. */
+            u32 aligned = address & ~3u;
+            u32 bytes = (address - aligned) ? 8u : 4u;
             MemInfo memory = {0};
             PageInfo page = {0};
-            result = svcQueryProcessMemory(&memory, &page, process, address);
+            result = svcQueryProcessMemory(&memory, &page, process, aligned);
             if (result == 0 && (!(memory.perm & MEMPERM_READ) ||
-                memory.base_addr > address ||
-                (u64)memory.base_addr + memory.size < (u64)address + 4u))
+                memory.base_addr > aligned ||
+                (u64)memory.base_addr + memory.size < (u64)aligned + bytes))
                 result = NTR_STATE_BAD_REGION;
             if (result == 0)
                 result = copyRemoteMemoryTimeout(CUR_PROCESS_HANDLE, ntrStateScratch,
-                    process, (void *)(unsigned long)address, 4u, 1000000000LL);
+                    process, (void *)(unsigned long)aligned, bytes, 1000000000LL);
             ntrStateValues[2u * field] = result;
             ntrStateValues[2u * field + 1u] = 0;
-            if (result == 0) memcpy(&ntrStateValues[2u * field + 1u], ntrStateScratch, 4u);
+            if (result == 0) memcpy(&ntrStateValues[2u * field + 1u], ntrStateScratch + (address - aligned), 4u);
         }
         svcCloseHandle(process);
         return 0;

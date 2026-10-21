@@ -32,13 +32,16 @@ static u32 svcGetProcessInfo(s64 *out,Handle process,u32 type) {
 static u32 svcCloseHandle(Handle process) {assert(process==50);++closed;return 0;}
 static u32 svcQueryProcessMemory(MemInfo *mem,PageInfo *page,Handle process,u32 address) {
  (void)page;assert(process==50);
- assert(address==0x67107c || address==0x6a668c || address==0x6a60ea);
- mem->base_addr=address;mem->size=4;mem->perm=bad && address==0x6a668c?0:MEMPERM_READ;return 0;
+ assert(address==0x67107c || address==0x6a668c || address==0x6a60e8);
+ mem->base_addr=address;mem->size=8;mem->perm=bad && address==0x6a668c?0:MEMPERM_READ;return 0;
 }
 static u32 copyRemoteMemoryTimeout(Handle dst,void *buffer,Handle src,void *address,u32 size,s64 timeout) {
- assert(dst==99 && src==50 && size==4 && timeout==1000000000LL);
- u32 value=(u32)(uintptr_t)address;
- memcpy(buffer,&value,4);++copies;return 0;
+ assert(dst==99 && src==50 && timeout==1000000000LL);
+ u32 base=(u32)(uintptr_t)address;
+ assert(size==(base==0x6a60e8?8:4));
+ memset(buffer,0,size);
+ u32 value=base==0x6a60e8?0x6a60ea:base;
+ memcpy((u8*)buffer+(base==0x6a60e8?2:0),&value,4);++copies;return 0;
 }
 static int nsSendPacketHeader(void) {return sizeof(NS_PACKET);}
 static int nsSendPacketData(u8 *buffer,u32 size) {
