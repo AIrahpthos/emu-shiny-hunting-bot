@@ -3,7 +3,7 @@ import struct
 import threading
 import unittest
 from unittest.mock import patch
-from core import choose_bottom_window, packet, Controller, Stopped, classify, wait_sample, measure
+from core import choose_bottom_window, packet, Controller, Stopped, classify, wait_sample, measure, wait_battle_dark
 
 
 class CoreTests(unittest.TestCase):
@@ -66,5 +66,17 @@ class CoreTests(unittest.TestCase):
             def wait(self,_): return False
         self.assertGreaterEqual(measure(lambda:next(values),FastStop()),0)
 
+    def test_memory_gate_returns_at_dark_before_visible_transition(self):
+        values=iter([(80,80,80),(0,0,0)]*2+[(0,0,0)]*3+[(150,150,150)])
+        seen=[];released=[]
+        def sample():
+            value=next(values);seen.append(value);return value
+        class FastStop:
+            def is_set(self):return False
+            def wait(self,_):return False
+        self.assertEqual(wait_battle_dark(sample,FastStop(),on_dark=lambda:released.append(len(seen))),(0,0,0))
+        self.assertEqual(released,[6]);self.assertEqual(len(seen),6)
+
 
 if __name__=='__main__': unittest.main()
+

@@ -10,6 +10,7 @@ from PIL import Image
 from core import Stopped
 from encounter_probe import HEADER, MAGIC, COMMAND, GUARD, ADDRESS, decode_record
 from memory_hunt import MemoryHunt, MemoryCheckError
+from species_names import species_name
 from test_encounter_probe import pokemon, encrypt
 
 
@@ -30,6 +31,12 @@ class MemoryDecisionTests(unittest.TestCase):
             self.assertEqual(request.call_count,4)
             record=json.loads((Path(folder)/'log.jsonl').read_text())
             self.assertEqual(record['species'],717)
+            self.assertEqual(record['species_name'],'Yveltal')
+
+    def test_species_names_are_available_offline(self):
+        self.assertEqual(species_name(639),'Terrakion')
+        self.assertEqual(species_name(797),'Celesteela')
+        self.assertEqual(species_name(0),'species #0')
 
     def test_shiny_stops_on_first_valid_fresh_read(self):
         request=Mock(side_effect=[reply(),reply(encrypt(pokemon(15)))])
@@ -112,22 +119,24 @@ class AppMemoryTests(unittest.TestCase):
         cap=Mock();cap.grab.return_value=Image.new('RGB',(320,240))
         memory=Mock();memory.observe.side_effect=observe
         if capability_error:memory.check_capability.side_effect=capability_error
-        def started(*args,**kwargs):kwargs['on_dark']();return (100,100,100)
+        def dark(*args,**kwargs):kwargs['on_dark']();return (0,0,0)
         with tempfile.TemporaryDirectory() as folder,patch('app.OUT',Path(folder)),patch('app.Capture',return_value=cap),\
              patch('app.Controller') as controller,patch('app.load_save'),patch('app.ResetStats'),\
-             patch('app.MemoryHunt',return_value=memory),patch('app.wait_encounter_start',side_effect=started),\
+             patch('app.MemoryHunt',return_value=memory),patch('app.wait_battle_dark',side_effect=dark) as dark_gate,\
              patch('app.measure') as timing,patch('app.wait_for_capture') as recovery:
             bot.run('hunt','10.0.0.87',object(),Mock(),
                     {'memory_check':True,'capture_source':'NTR wireless','forward':0,'threshold':1.1,
                      'adaptive_reset':True,'auto_recover':True},repeat,(.5,.5))
         resets=[c for c in controller.return_value.hold.call_args_list if c.args[0]==('L','R','START')]
         timing.assert_not_called();recovery.assert_not_called()
+        self.assertEqual(dark_gate.call_count,len(resets))
         return bot,len(resets),memory
 
     def test_shiny_stops_after_one_reset_even_with_repeat(self):
         bot,resets,_=self.run_bot([(decode_record(pokemon(15)),.1)],True)
         self.assertEqual(resets,1)
         self.assertIn(('alert','shiny confirmed by memory'),list(bot.events.queue))
+        self.assertTrue(any('Yveltal (#717)' in call.args[0] for call in bot.emit.call_args_list))
 
     def test_unknown_memory_never_enters_adaptive_reset(self):
         bot,resets,_=self.run_bot(MemoryCheckError('Unknown'),True)

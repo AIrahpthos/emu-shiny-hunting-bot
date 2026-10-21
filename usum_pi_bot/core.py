@@ -99,18 +99,23 @@ def wait_sample(sample, predicate, stop, timeout=20, stable=3):
     raise TimeoutError('Expected screen transition was not seen. Stopped without another reset.')
 
 
+def wait_battle_dark(sample, stop, on_dark=None):
+    """Release encounter inputs at the first stable battle-start dark screen."""
+    try:
+        dark = wait_sample(sample, lambda p: max(p) <= 25, stop)
+    except TimeoutError as e:
+        raise EncounterStartTimeout('Battle-start dark screen was not observed.') from e
+    if on_dark is not None:
+        on_dark()
+    return dark
+
+
 def wait_encounter_start(sample, stop, skip_changes=0, emit=None, on_dark=None):
     # Damon's sequence: dark screen -> first change -> second change.
     # Region averaging and consecutive matches tolerate capture noise.
     if type(skip_changes) is not int or not 0 <= skip_changes <= 20:
         raise ValueError('Screen changes to skip must be an integer from 0 to 20.')
-    try:
-        dark = wait_sample(sample, lambda p: max(p) <= 25, stop)
-    except TimeoutError as e:
-        raise EncounterStartTimeout('Battle-start dark screen was not observed.') from e
-    # Stop and join the input worker before observing the timed transitions.
-    if on_dark is not None:
-        on_dark()
+    dark = wait_battle_dark(sample, stop, on_dark)
     previous = dark
     for index in range(skip_changes):
         previous = wait_sample(sample, lambda p: difference(p, previous) >= 35, stop)

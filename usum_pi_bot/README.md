@@ -17,9 +17,11 @@ opponent address has been confirmed on an unpatched Ultra Moon Terrakion
 encounter; other versions and encounter types still need validation.
 
 Enable the checkbox and leave automatic repeating off for the first encounter.
-Save-load and encounter-start detection still use the bottom feed. At encounter
-start the bot reads the opponent's species, PID and shiny status over the same
-connection used for capture. Timing calibration is not used in this mode.
+Save-load and battle-start detection still use the bottom feed. As soon as the
+stable dark battle screen is detected, the bot releases inputs and polls memory
+for a new valid opponent; it no longer waits for the model to appear. It shows
+the Pokémon's English name, species number, PID and shiny status using the same
+connection as capture. Timing calibration is not used in this mode.
 Confirm the first normal result matches the visible opponent. Enable repeating
 on a later run to reset confirmed normal encounters automatically.
 

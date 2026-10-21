@@ -6,6 +6,7 @@ from pathlib import Path
 import time
 from encounter_probe import GUARD, ProbeError, decode_record, parse_encounter_reply
 from core import Stopped
+from species_names import species_name
 
 
 class MemoryCheckError(RuntimeError):
@@ -49,7 +50,8 @@ class MemoryHunt:
                 # Stop immediately on any valid shiny read. Confirmation is required only to reset.
                 if pokemon.shiny or candidate==identity:
                     record={'time':time.strftime('%Y-%m-%d %H:%M:%S'),**metadata,
-                            **asdict(pokemon),'check_seconds':time.monotonic()-start}
+                            **asdict(pokemon),'species_name':species_name(pokemon.species),
+                            'check_seconds':time.monotonic()-start}
                     self.path.parent.mkdir(parents=True,exist_ok=True)
                     with self.path.open('a',encoding='utf-8') as log:
                         log.write(json.dumps(record)+'\n');log.flush()

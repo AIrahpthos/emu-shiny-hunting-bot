@@ -10,8 +10,9 @@ from PIL import Image, ImageTk, ImageStat
 from capture_linux import ViewerUnavailable
 from frame_feed import Capture, wait_for_capture
 from capture_service import CaptureService
-from core import Controller, Stopped, EncounterStartTimeout, measure, wait_encounter_start, classify, choose_bottom_window, BOTTOM_WINDOW_PREFIX, trigger_encounter
+from core import Controller, Stopped, EncounterStartTimeout, measure, wait_battle_dark, classify, choose_bottom_window, BOTTOM_WINDOW_PREFIX, trigger_encounter
 from memory_hunt import MemoryHunt, MemoryCheckError
+from species_names import species_name
 from navigation import ColourDetector, load_save
 from ntr_support import SOURCES
 from reset_stats import ResetStats
@@ -417,9 +418,9 @@ class App:
                             trigger_errors.append(e)
                             self.stop.set()
                     phase='unclassified encounter'
-                    self.emit('Watching bottom screen: dark -> first change -> memory check.' if memory else 'Watching bottom screen: dark -> first change -> second change.')
+                    self.emit('Watching bottom screen: dark -> memory check.' if memory else 'Watching bottom screen: dark -> first change -> second change.')
                     skip_changes=o.get('skip_changes',0) if o.get('ultra_beast',False) else 0
-                    if skip_changes:
+                    if skip_changes and not memory:
                         self.emit(f'Ultra Beast mode: skipping {skip_changes} changes after the initial dark screen before timing the encounter.')
                     trigger_thread=threading.Thread(target=trigger,daemon=True)
                     trigger_thread.start()
@@ -432,8 +433,7 @@ class App:
                         self.emit('Battle-start dark screen detected. Controls released.')
                     try:
                         if memory:
-                            wait_encounter_start(cap.sample,self.stop,skip_changes=skip_changes,emit=self.emit,
-                                                 on_dark=stop_encounter_input)
+                            wait_battle_dark(cap.sample,self.stop,on_dark=stop_encounter_input)
                             pokemon,read_seconds=memory.observe()
                         else:
                             duration=measure(cap.sample,self.stop,skip_changes=skip_changes,emit=self.emit,
@@ -446,7 +446,8 @@ class App:
                     stamp=time.strftime('%Y%m%d-%H%M%S')
                     if memory:
                         result='shiny' if pokemon.shiny else 'normal'
-                        self.emit(f'MEMORY {result.upper()}: species #{pokemon.species}, PID {pokemon.personality:08X}, XOR {pokemon.shiny_xor}; check {read_seconds:.3f}s.')
+                        name=species_name(pokemon.species)
+                        self.emit(f'MEMORY {result.upper()}: {name} (#{pokemon.species}), PID {pokemon.personality:08X}, XOR {pokemon.shiny_xor}; check {read_seconds:.3f}s.')
                         phase='confirmed '+result+' encounter'
                         consecutive_failures=0
                         try: cap.grab().save(OUT/f'memory-encounter-{stamp}.png')
@@ -455,7 +456,7 @@ class App:
                             self.events.put(('alert','shiny confirmed by memory'));return
                         if not memory_confirmed:
                             self.events.put(('memory_confirmation',None))
-                            self.emit(f'Paused: verify species #{pokemon.species} matches the opponent and it is normal, then confirm. Memory results are saved in out/memory-encounters.jsonl.')
+                            self.emit(f'Paused: verify {name} (#{pokemon.species}) matches the opponent and it is normal, then confirm. Memory results are saved in out/memory-encounters.jsonl.')
                             while not self.confirm.wait(.05):
                                 if self.stop.is_set():raise Stopped()
                             if self.stop.is_set():raise Stopped()
