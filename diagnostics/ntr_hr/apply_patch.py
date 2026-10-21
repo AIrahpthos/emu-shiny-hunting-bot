@@ -82,10 +82,10 @@ def instrument_network(source):
     if 'NTR_CMD_ENCOUNTER' in source or 'NS_CMD_ENCOUNTER' in source or 'ntr_read_encounter.h' in source:
         raise ValueError('Network source is already patched.')
     changes = [
-        ('NS_CMD_REMOTEPLAY = 901,', 'NS_CMD_REMOTEPLAY = 901,\n\tNS_CMD_ENCOUNTER = 902,'),
-        ('void nsHandleDbgPrintPacket(void) {', '#include "ntr_read_encounter.h"\n\nvoid nsHandleDbgPrintPacket(void) {'),
+        ('NS_CMD_REMOTEPLAY = 901,', 'NS_CMD_REMOTEPLAY = 901,\n\tNS_CMD_ENCOUNTER = 902,\n\tNS_CMD_STATE = 903,'),
+        ('void nsHandleDbgPrintPacket(void) {', '#include "ntr_read_encounter.h"\n#include "ntr_read_state.h"\n\nvoid nsHandleDbgPrintPacket(void) {'),
         ('if (pac->cmd == NS_CMD_REMOTEPLAY) {\n\t\tnsHandleRemotePlay();',
-         'if (pac->cmd == NS_CMD_ENCOUNTER) {\n\t\tnsHandleEncounterPacket();\n\t} else if (pac->cmd == NS_CMD_REMOTEPLAY) {\n\t\tnsHandleRemotePlay();'),
+         'if (pac->cmd == NS_CMD_STATE) {\n\t\tnsHandleStatePacket();\n\t} else if (pac->cmd == NS_CMD_ENCOUNTER) {\n\t\tnsHandleEncounterPacket();\n\t} else if (pac->cmd == NS_CMD_REMOTEPLAY) {\n\t\tnsHandleRemotePlay();'),
     ]
     for old, new in changes:
         if source.count(old) != 1:
@@ -113,10 +113,11 @@ def main():
         changed_network = instrument_network(original_network)
         network.write_text(changed_network)
         (args.source_tree / 'include/ntr_read_encounter.h').write_bytes((HERE / 'ntr_read_encounter.h').read_bytes())
+        (args.source_tree / 'include/ntr_read_state.h').write_bytes((HERE / 'ntr_read_state.h').read_bytes())
     target.write_text(changed)
     trace = (HERE / 'ntr_plugin_trace.h').read_text()
     if args.encounter_reader:
-        trace = trace.replace('safe-title-v2', 'encounter-reader-v3')
+        trace = trace.replace('safe-title-v2', 'state-reader-v4')
     (args.source_tree / 'include/ntr_plugin_trace.h').write_text(trace)
     (args.source_tree / 'include/ntr_safe_title.h').write_bytes((HERE / 'ntr_safe_title.h').read_bytes())
     print('Applied safe title lookup v2; source SHA256:', hashlib.sha256(changed.encode()).hexdigest())

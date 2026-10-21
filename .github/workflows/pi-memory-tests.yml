@@ -1,7 +1,7 @@
 name: Pi memory hunt tests
 on:
   push:
-    branches: [ntr-memory-probe]
+    branches: [ntr-memory-probe, ntr-state-probe]
     paths:
       - 'usum_pi_bot/**'
       - '.github/workflows/pi-memory-tests.yml'

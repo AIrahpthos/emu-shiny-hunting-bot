@@ -11,6 +11,7 @@ from core import Stopped
 from encounter_probe import HEADER, MAGIC, COMMAND, GUARD, ADDRESS, decode_record
 from memory_hunt import MemoryHunt, MemoryCheckError
 from species_names import species_name
+from state_probe import parse_state_reply, COMMAND as STATE_COMMAND, GUARD as STATE_GUARD, SCHEMA as STATE_SCHEMA, REPLY as STATE_REPLY
 from test_encounter_probe import pokemon, encrypt
 
 
@@ -90,6 +91,11 @@ class SharedNtrConnectionTests(unittest.TestCase):
                             response,payload=reply(raw,status,seq=head[1])
                             data=HEADER.pack(*response)+payload
                             conn.sendall(data[:11]);conn.sendall(data[11:])
+                        elif head[3]==STATE_COMMAND:
+                            status=0 if head[4]==STATE_GUARD else 0xe1000001
+                            payload=STATE_REPLY.pack(0,0x304b742c,0,0x80008,0,0) if not status else b''
+                            args=[status,50,0x1b5100,0x40000,STATE_SCHEMA,STATE_REPLY.size,STATE_GUARD]+[0]*9
+                            conn.sendall(HEADER.pack(MAGIC,head[1],0,STATE_COMMAND,*args,len(payload))+payload)
             except Exception as error:
                 if not stop.is_set():errors.append(error)
         thread=threading.Thread(target=console,daemon=True);thread.start()
@@ -103,9 +109,13 @@ class SharedNtrConnectionTests(unittest.TestCase):
                     hunt.check_capability()
                     meta,data=hunt.read();self.assertEqual(meta['game'],'Ultra Moon')
                     self.assertEqual(decode_record(data).species,717)
+                    parse_state_reply(*backend.state_request(threading.Event(),capability=True),capability=True)
+                    states=parse_state_reply(*backend.state_request(threading.Event()))
+                    self.assertEqual(states['battle_candidate']['value'],'304b742c')
                 self.assertEqual(connect.call_count,1)
                 self.assertEqual(commands.count(901),1)
                 self.assertEqual(commands.count(902),2)
+                self.assertEqual(commands.count(STATE_COMMAND),2)
                 stop.set();backend.close()
         finally:stop.set();backend.close();server.close();thread.join(5)
         self.assertFalse(errors,errors);self.assertFalse(thread.is_alive())

@@ -108,11 +108,20 @@ class NtrCapture:
     def encounter_request(self, stop, timeout=4, capability=False):
         """Exchange one bounded memory request through the existing control worker."""
         from encounter_probe import COMMAND, GUARD, ADDRESS, ProbeError
+        return self._memory_request(stop, COMMAND, (GUARD ^ 1 if capability else GUARD, ADDRESS), timeout)
+
+    def state_request(self, stop, timeout=4, capability=False):
+        """Read the v4 state candidates without starting another TCP connection."""
+        from state_probe import COMMAND, GUARD, SCHEMA
+        return self._memory_request(stop, COMMAND, (GUARD ^ 1 if capability else GUARD, SCHEMA), timeout)
+
+    def _memory_request(self, stop, command, args, timeout):
+        from encounter_probe import ProbeError
         from core import Stopped
         if self.receive_only: raise ProbeError('Memory checks require the bot-owned NTR connection.')
         with self.command_lock:
             if stop.is_set() or self.stop.is_set(): raise Stopped()
-            request={'args':(GUARD ^ 1 if capability else GUARD, ADDRESS),
+            request={'command':command,'args':args,
                      'event':threading.Event(),'reply':None,'error':None,
                      'deadline':time.monotonic()+timeout}
             try: self.command_queue.put_nowait(request)
@@ -265,7 +274,7 @@ class NtrCapture:
                             if len(buffer)<size: break
                             message=bytes(buffer[HEADER.size:size])
                             del buffer[:size]
-                            if pending is not None and header[3]==902 and header[1]==pending['sequence']:
+                            if pending is not None and header[3]==pending['command'] and header[1]==pending['sequence']:
                                 pending['reply']=(header,message)
                                 pending['event'].set(); pending=None
                             if self.control_warning:
@@ -288,7 +297,7 @@ class NtrCapture:
                         except queue.Empty: request=None
                         if request is not None and not request.get('cancelled') and now<request['deadline']:
                             pending=request; pending['sequence']=sequence
-                            tcp.sendall(control_packet(sequence,902,pending['args']))
+                            tcp.sendall(control_packet(sequence,pending['command'],pending['args']))
                             sequence=(sequence+1)&0xffffffff
                     if now-heartbeat>=.25:
                         tcp.sendall(control_packet(sequence)); sequence=(sequence+1)&0xffffffff

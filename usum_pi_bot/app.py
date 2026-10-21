@@ -12,6 +12,7 @@ from frame_feed import Capture, wait_for_capture
 from capture_service import CaptureService
 from core import Controller, Stopped, EncounterStartTimeout, measure, wait_battle_dark, classify, choose_bottom_window, BOTTOM_WINDOW_PREFIX, trigger_encounter
 from memory_hunt import MemoryHunt, MemoryCheckError
+from state_logging import StateRecorder
 from species_names import species_name
 from navigation import ColourDetector, load_save
 from ntr_support import SOURCES
@@ -122,6 +123,10 @@ class App:
         self.memory_toggle=ttk.Checkbutton(frame,text='Read shiny status from memory (NTR v3, experimental)',variable=self.memory_check)
         self.memory_toggle.pack(anchor='w',pady=3)
         self.setup_buttons.append(self.memory_toggle)
+        self.state_log=tk.BooleanVar(value=saved.get('state_log',False))
+        self.state_toggle=ttk.Checkbutton(frame,text='Record raw USUM memory states (NTR v4 diagnostic)',variable=self.state_log)
+        self.state_toggle.pack(anchor='w',pady=3)
+        self.setup_buttons.append(self.state_toggle)
         self.window_name=tk.StringVar(value='Capture disconnected. Choose a source and connect.')
         ttk.Label(frame,textvariable=self.window_name,wraplength=730).pack(anchor='w',pady=4)
         self.refresh_button=ttk.Button(frame,text='Reconnect capture',command=lambda:self.connect_capture(reconnect=True))
@@ -340,8 +345,13 @@ class App:
                 if not low <= value <= high: raise ValueError(f'{key} must be between {low} and {high}.')
             options['capture_source']=self.source()
             options['memory_check']=self.memory_check.get()
+            options['state_log']=self.state_log.get()
             if options['memory_check'] and self.source()!='NTR wireless':
                 raise ValueError('Memory checks currently require NTR wireless capture.')
+            if options['state_log'] and self.source()!='NTR wireless':
+                raise ValueError('State diagnostics require NTR wireless capture.')
+            if options['state_log'] and options['memory_check']:
+                raise ValueError('Record states during a video-guided hunt; disable memory shiny checks for this diagnostic run.')
             options['auto_connect_capture']=self.auto_connect_capture.get()
             options['ntr_quality'],options['ntr_bandwidth']=self.capture_options()
             options['colour_hz']=int(self.ntr_hz.get())
@@ -380,6 +390,7 @@ class App:
         consecutive_failures=0
         stats=None
         memory=None;memory_confirmed=False
+        state_recorder=None;state_context={'attempt':0,'phase':'waiting'}
         try:
             stats=ResetStats(OUT/'reset-observations.jsonl',o.get('stats_key','unconfigured')) if mode=='hunt' else None
             controller=Controller(ip,self.stop)
@@ -392,14 +403,21 @@ class App:
                 memory=MemoryHunt(self.capture_service.encounter_request,self.stop,OUT/'memory-encounters.jsonl')
                 memory.check_capability()
                 self.emit('NTR memory reader confirmed. Timing calibration is not used in memory mode.')
+            if o.get('state_log',False):
+                state_recorder=StateRecorder(self.capture_service.state_request,self.stop,
+                                           OUT/'usum-state-observations.jsonl',state_context,self.emit)
+                state_recorder.start()
+                self.emit('Recording raw USUM state candidates alongside the video hunt in out/usum-state-observations.jsonl.')
             while not self.stop.is_set():
                 phase='before encounter'
                 try:
                     cap.grab()
                     attempts+=1; self.emit(f'Encounter {attempts}: resetting...')
+                    state_context.update(attempt=attempts,phase='resetting')
                     controller.hold(('L','R','START'),.15)
                     controller.wait(1.0)
                     reset_start=time.monotonic()
+                    state_context['phase']='loading'
                     loaded=load_save(controller,cap.grab,refs,self.stop,self.emit,
                                      timeout=o.get('load_limit',o.get('ntr_load_limit',16)),
                                      hz=o.get('colour_hz',o.get('ntr_hz',30)),
@@ -408,6 +426,7 @@ class App:
                     if loaded.gradient_seen:
                         self.emit(f'Observed load #{stats.observed_count}; blue → black → red confirmed.')
                     self.emit(f'Startup wait took {time.monotonic()-reset_start:.2f}s; load '+('confirmed.' if loaded.gradient_seen else 'inferred; encounter check required.'))
+                    state_context['phase']='loaded'
                     if memory: memory.prepare()
                     trigger_errors=[]
                     trigger_cancel.clear()
@@ -418,6 +437,7 @@ class App:
                             trigger_errors.append(e)
                             self.stop.set()
                     phase='unclassified encounter'
+                    state_context['phase']='triggering encounter'
                     self.emit('Watching bottom screen: dark -> memory check.' if memory else 'Watching bottom screen: dark -> first change -> second change.')
                     skip_changes=o.get('skip_changes',0) if o.get('ultra_beast',False) else 0
                     if skip_changes and not memory:
@@ -431,6 +451,7 @@ class App:
                         if trigger_errors:
                             raise trigger_errors[0]
                         self.emit('Battle-start dark screen detected. Controls released.')
+                        state_context['phase']='battle dark'
                     try:
                         if memory:
                             wait_battle_dark(cap.sample,self.stop,on_dark=stop_encounter_input)
@@ -443,6 +464,7 @@ class App:
                         trigger_thread.join()
                         controller.release()
                     if trigger_errors: raise trigger_errors[0]
+                    state_context['phase']='opponent observed'
                     stamp=time.strftime('%Y%m%d-%H%M%S')
                     if memory:
                         result='shiny' if pokemon.shiny else 'normal'
@@ -541,6 +563,7 @@ class App:
         except Exception as e: self.emit(f'STOPPED: {type(e).__name__}: {e}')
         finally:
             self.stop.set()
+            if state_recorder: state_recorder.close()
             trigger_cancel.set()
             if trigger_thread and trigger_thread.is_alive(): trigger_thread.join()
             try:

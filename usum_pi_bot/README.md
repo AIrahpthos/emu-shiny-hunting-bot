@@ -37,6 +37,25 @@ The standalone probe and console installation instructions are in
 integrated bot; it does not need replacing for this update. Memory checks are
 off by default and currently require the NTR capture source.
 
+## Experimental state recording
+
+The `ntr-state-probe` branch adds **Record raw USUM memory states (NTR v4
+diagnostic)**. Install its v4 console build, use NTR wireless capture and leave
+**Read shiny status from memory** off for this diagnostic run. The existing
+video-guided hunt runs normally while the bot records three candidate 32-bit
+values and the current attempt/phase in `out/usum-state-observations.jsonl`.
+It also records process IDs, individual read errors and timestamps. This log
+can be compared to `out/events.log` to find repeatable transitions. The
+candidates come from PKMN-NTR's updated USUM bot: battle `0x67107C`, dialogue
+`0x6A668C`, in-game menu `0x6A60EA`. They have not been confirmed for an
+older game revision; none of these values controls a reset. The v4 console
+build retains the v3 opponent reader and the safe process-title lookup.
+
+`python3 state_probe.py --host <3DS-IP> --seconds 30` can also record raw
+states on its own after closing the bot; the integrated recorder is more
+useful for collecting labelled automated resets. The log includes only raw
+values, so a value that looks like a battle flag is not yet proof of a battle.
+
 ## Requirements
 
 - Raspberry Pi 4 or a Linux computer running a Debian-based distribution.

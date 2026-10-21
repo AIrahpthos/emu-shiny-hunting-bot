@@ -45,3 +45,8 @@ class CaptureService:
             raise ProbeError('Memory checks currently require NTR wireless capture.')
         return self.backend.encounter_request(stop,capability=capability)
 
+    def state_request(self, stop, capability=False):
+        if not isinstance(self.backend,NtrCapture):
+            raise ValueError('State diagnostics require NTR wireless capture.')
+        return self.backend.state_request(stop,capability=capability)
+

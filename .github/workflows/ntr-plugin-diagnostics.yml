@@ -3,11 +3,13 @@ name: NTR plugin diagnostics
 on:
   workflow_dispatch:
   push:
-    branches: [ntr-memory-probe]
+    branches: [ntr-memory-probe, ntr-state-probe]
     paths:
       - 'diagnostics/ntr_hr/**'
       - 'usum_pi_bot/encounter_probe.py'
       - 'usum_pi_bot/tests/test_encounter_probe.py'
+      - 'usum_pi_bot/state_probe.py'
+      - 'usum_pi_bot/tests/test_state_probe.py'
       - 'usum_pi_bot/MEMORY_PROBE.md'
       - '.github/workflows/ntr-plugin-diagnostics.yml'
 
@@ -32,6 +34,8 @@ jobs:
         run: python3 -m unittest discover -s diagnostics/ntr_hr/tests -v
       - name: Test encounter decoder and protocol
         run: python3 -m unittest discover -s usum_pi_bot/tests -p test_encounter_probe.py -v
+      - name: Test state decoder and protocol
+        run: cd usum_pi_bot && python3 -m unittest discover -s tests -p test_state_probe.py -v
       - name: Build pinned diagnostic console software
         shell: bash
         run: bash diagnostics/ntr_hr/build.sh "$RUNNER_TEMP/ntr-plugin-build"
