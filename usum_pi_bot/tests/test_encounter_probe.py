@@ -65,6 +65,32 @@ class DecoderTests(unittest.TestCase):
 
 
 class TransportTests(unittest.TestCase):
+    def test_capability_check_sends_heartbeat_then_invalid_guard_without_memory_read(self):
+        class FakeSocket:
+            def __init__(self): self.incoming=bytearray();self.requests=[]
+            def sendall(self,data):
+                request=probe.HEADER.unpack(data);self.requests.append(request)
+                args=[0]*16
+                if request[3]==902:
+                    self.guard=request[4];args[0]=0xE1000001;args[6]=probe.GUARD
+                self.incoming.extend(probe.HEADER.pack(probe.MAGIC,request[1],0,request[3],*args,0))
+            def recv(self,size):
+                result=bytes(self.incoming[:size]);del self.incoming[:size];return result
+        reader=probe.EncounterReader('127.0.0.1');reader.sock=FakeSocket()
+        reader.check_endpoint()
+        self.assertEqual([x[3] for x in reader.sock.requests],[0,902])
+        self.assertNotEqual(reader.sock.guard,probe.GUARD)
+
+    def test_timeout_names_the_failed_stage(self):
+        class SilentSocket:
+            def sendall(self,data): pass
+            def recv(self,size): raise socket.timeout()
+        reader=probe.EncounterReader('127.0.0.1');reader.sock=SilentSocket()
+        with self.assertRaisesRegex(probe.ProbeError,'NTR heartbeat: TCP connected'):
+            reader.check_endpoint()
+        with self.assertRaisesRegex(probe.ProbeError,'Encounter memory read: TCP connected'):
+            reader.read()
+
     def test_real_tcp_fragmented_response_and_error_without_data(self):
         server = socket.socket(); server.bind(('127.0.0.1',0)); server.listen(1)
         failures = []

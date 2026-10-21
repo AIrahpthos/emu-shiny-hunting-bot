@@ -111,7 +111,10 @@ class EncounterReader:
         self.sock = None
 
     def __enter__(self):
-        self.sock = socket.create_connection((self.host, self.port), self.timeout)
+        try:
+            self.sock = socket.create_connection((self.host, self.port), self.timeout)
+        except OSError as error:
+            raise ProbeError(f'TCP connection to {self.host}:{self.port} failed: {error}') from error
         self.sock.settimeout(self.timeout)
         return self
 
@@ -120,12 +123,34 @@ class EncounterReader:
             self.sock.close()
             self.sock = None
 
-    def read(self):
+    def _exchange(self, command, args, phase):
         self.sequence = (self.sequence + 1) & 0xFFFFFFFF
-        self.sock.sendall(request_packet(self.sequence))
-        header = HEADER.unpack(recv_exact(self.sock, HEADER.size))
-        if header[0] != MAGIC or header[1] != self.sequence or header[3] != COMMAND:
-            raise ProbeError('Unexpected NTR reply; this probe requires Encounter Reader v3.')
+        packet = HEADER.pack(MAGIC, self.sequence, 0, command, *args, *([0]*(16-len(args))), 0)
+        try:
+            self.sock.sendall(packet)
+            header = HEADER.unpack(recv_exact(self.sock, HEADER.size))
+        except socket.timeout as error:
+            raise ProbeError(f'{phase}: TCP connected to {self.host}:{self.port}, but no complete reply header arrived within {self.timeout}s') from error
+        if header[0] != MAGIC or header[1] != self.sequence or header[3] != command or header[-1] > 1024*1024:
+            raise ProbeError(f'{phase}: unexpected NTR response header.')
+        try:
+            payload = recv_exact(self.sock, header[-1])
+        except socket.timeout as error:
+            raise ProbeError(f'{phase}: reply header arrived, but its {header[-1]} payload bytes did not finish within {self.timeout}s') from error
+        return header, payload
+
+    def check_endpoint(self, emit=lambda message: None):
+        emit(f'TCP connected to {self.host}:{self.port}. Checking standard NTR heartbeat...')
+        self._exchange(0, (), 'NTR heartbeat')
+        emit('Heartbeat received. Checking v3 endpoint without reading game memory...')
+        # An invalid guard requests a bounded error reply; v3 must not scan or read.
+        header, payload = self._exchange(COMMAND, (GUARD ^ 1, ADDRESS), 'Encounter-reader capability check')
+        if header[4] != 0xE1000001 or header[10] != GUARD or payload:
+            raise ProbeError('The server replied, but did not identify the expected v3 endpoint.')
+        emit('Encounter Reader v3 endpoint confirmed.')
+
+    def read(self):
+        header, payload = self._exchange(COMMAND, (GUARD, ADDRESS), 'Encounter memory read')
         status, pid, low, high, address, size, guard = header[4:11]
         length = header[-1]
         if (guard != GUARD or address != ADDRESS or size != SIZE
@@ -139,7 +164,7 @@ class EncounterReader:
         if title not in TITLES:
             raise ProbeError('Reply did not identify Ultra Sun or Ultra Moon.')
         metadata['game'] = TITLES[title]
-        return metadata, recv_exact(self.sock, length)
+        return metadata, payload
 
 
 def main(argv=None):
@@ -149,6 +174,7 @@ def main(argv=None):
     parser.add_argument('--interval', type=float, default=.5, help='Seconds between requests (minimum 0.1)')
     parser.add_argument('--out', type=Path, help='Result directory')
     parser.add_argument('--file', type=Path, help='Decode an existing raw Pokemon file without connecting')
+    parser.add_argument('--diagnose', action='store_true', help='Check TCP, heartbeat and endpoint only; do not read game memory')
     args = parser.parse_args(argv)
     if args.file:
         try:
@@ -165,6 +191,15 @@ def main(argv=None):
             host = json.loads((root/'settings.json').read_text())['ip']
         except (OSError, ValueError, KeyError):
             parser.error('Supply --host with your 3DS IP, or place this beside the bot settings.json.')
+    if args.diagnose:
+        print(f'Connection diagnosis for {host}:8000. No encounter memory will be read.', flush=True)
+        try:
+            with EncounterReader(host) as reader:
+                reader.check_endpoint(lambda message: print(message, flush=True))
+            return 0
+        except (OSError, ValueError, ProbeError) as error:
+            print('Diagnosis stopped: '+str(error), flush=True)
+            return 2
     folder = args.out or root/'out'/('memory-probe-'+datetime.now().strftime('%Y%m%d-%H%M%S')+'-'+str(time.time_ns()))
     folder.mkdir(parents=True, exist_ok=True)
     print('Read-only probe. Close the bot/viewer before connecting. No inputs or resets are sent.', flush=True)
@@ -174,6 +209,7 @@ def main(argv=None):
     last_summary = None
     try:
         with EncounterReader(host) as reader, (folder/'observations.jsonl').open('a') as log:
+            reader.check_endpoint(lambda message: print(message, flush=True))
             deadline = time.monotonic()+args.seconds
             while time.monotonic() < deadline:
                 start = time.monotonic()
