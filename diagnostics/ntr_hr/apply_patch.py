@@ -77,9 +77,27 @@ def instrument(source):
     return source
 
 
+def instrument_network(source):
+    source = source.replace('\r\n', '\n')
+    if 'NTR_CMD_ENCOUNTER' in source or 'NS_CMD_ENCOUNTER' in source or 'ntr_read_encounter.h' in source:
+        raise ValueError('Network source is already patched.')
+    changes = [
+        ('NS_CMD_REMOTEPLAY = 901,', 'NS_CMD_REMOTEPLAY = 901,\n\tNS_CMD_ENCOUNTER = 902,'),
+        ('void nsHandleDbgPrintPacket(void) {', '#include "ntr_read_encounter.h"\n\nvoid nsHandleDbgPrintPacket(void) {'),
+        ('if (pac->cmd == NS_CMD_REMOTEPLAY) {\n\t\tnsHandleRemotePlay();',
+         'if (pac->cmd == NS_CMD_ENCOUNTER) {\n\t\tnsHandleEncounterPacket();\n\t} else if (pac->cmd == NS_CMD_REMOTEPLAY) {\n\t\tnsHandleRemotePlay();'),
+    ]
+    for old, new in changes:
+        if source.count(old) != 1:
+            raise ValueError('Network source anchor differs or is already patched.')
+        source = source.replace(old, new, 1)
+    return source
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('source_tree', type=Path)
+    parser.add_argument('--encounter-reader', action='store_true')
     args = parser.parse_args()
     target = args.source_tree / 'source/pm/main_pm.c'
     original = target.read_text()
@@ -87,11 +105,23 @@ def main():
     if original.replace('\r\n', '\n').rstrip() != fixture.rstrip():
         raise SystemExit('Source differs from pinned NTR-HR v0.3.8.2; refusing to patch.')
     changed = instrument(original)
+    network = args.source_tree / 'source/ns.c'
+    if args.encounter_reader:
+        original_network = network.read_text().replace('\r\n', '\n')
+        if original_network.rstrip() != (HERE / 'upstream/ns.c').read_text().rstrip():
+            raise SystemExit('Network source differs from pinned NTR-HR; refusing to patch.')
+        changed_network = instrument_network(original_network)
+        network.write_text(changed_network)
+        (args.source_tree / 'include/ntr_read_encounter.h').write_bytes((HERE / 'ntr_read_encounter.h').read_bytes())
     target.write_text(changed)
-    (args.source_tree / 'include/ntr_plugin_trace.h').write_bytes((HERE / 'ntr_plugin_trace.h').read_bytes())
+    trace = (HERE / 'ntr_plugin_trace.h').read_text()
+    if args.encounter_reader:
+        trace = trace.replace('safe-title-v2', 'encounter-reader-v3')
+    (args.source_tree / 'include/ntr_plugin_trace.h').write_text(trace)
     (args.source_tree / 'include/ntr_safe_title.h').write_bytes((HERE / 'ntr_safe_title.h').read_bytes())
     print('Applied safe title lookup v2; source SHA256:', hashlib.sha256(changed.encode()).hexdigest())
 
 
 if __name__ == '__main__':
     main()
+
