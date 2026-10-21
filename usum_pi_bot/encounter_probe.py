@@ -104,6 +104,23 @@ def recv_exact(sock, size):
     return bytes(out)
 
 
+def parse_encounter_reply(header, payload):
+    if len(header)!=21 or header[0]!=MAGIC or header[3]!=COMMAND:
+        raise ProbeError('Unexpected encounter-reader reply.')
+    status, pid, low, high, address, size, guard = header[4:11]
+    length = header[-1]
+    if (guard != GUARD or address != ADDRESS or size != SIZE
+            or length != (0 if status else SIZE) or len(payload)!=length):
+        raise ProbeError('Invalid encounter-reader response.')
+    title = low | (high << 32)
+    metadata = {'result': f'{status:08x}', 'process_id': pid,
+                'title_id': f'{title:016x}', 'address': f'{address:08x}'}
+    if status: return metadata, None
+    if title not in TITLES: raise ProbeError('Reply did not identify Ultra Sun or Ultra Moon.')
+    metadata['game'] = TITLES[title]
+    return metadata, payload
+
+
 class EncounterReader:
     def __init__(self, host, port=8000, timeout=4):
         self.host = str(ipaddress.IPv4Address(host))
@@ -151,20 +168,7 @@ class EncounterReader:
 
     def read(self):
         header, payload = self._exchange(COMMAND, (GUARD, ADDRESS), 'Encounter memory read')
-        status, pid, low, high, address, size, guard = header[4:11]
-        length = header[-1]
-        if (guard != GUARD or address != ADDRESS or size != SIZE
-                or length != (0 if status else SIZE)):
-            raise ProbeError('Invalid encounter-reader response.')
-        title = low | (high << 32)
-        metadata = {'result': f'{status:08x}', 'process_id': pid,
-                    'title_id': f'{title:016x}', 'address': f'{address:08x}'}
-        if status:
-            return metadata, None
-        if title not in TITLES:
-            raise ProbeError('Reply did not identify Ultra Sun or Ultra Moon.')
-        metadata['game'] = TITLES[title]
-        return metadata, payload
+        return parse_encounter_reply(header,payload)
 
 
 def main(argv=None):
@@ -252,3 +256,4 @@ def main(argv=None):
 
 if __name__ == '__main__':
     raise SystemExit(main())
+

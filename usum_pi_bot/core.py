@@ -99,7 +99,7 @@ def wait_sample(sample, predicate, stop, timeout=20, stable=3):
     raise TimeoutError('Expected screen transition was not seen. Stopped without another reset.')
 
 
-def measure(sample, stop, skip_changes=0, emit=None, on_dark=None):
+def wait_encounter_start(sample, stop, skip_changes=0, emit=None, on_dark=None):
     # Damon's sequence: dark screen -> first change -> second change.
     # Region averaging and consecutive matches tolerate capture noise.
     if type(skip_changes) is not int or not 0 <= skip_changes <= 20:
@@ -116,6 +116,11 @@ def measure(sample, stop, skip_changes=0, emit=None, on_dark=None):
         previous = wait_sample(sample, lambda p: difference(p, previous) >= 35, stop)
         if emit: emit(f'Skipped cutscene screen change {index+1}/{skip_changes}.')
     first = wait_sample(sample, lambda p: difference(p, previous) >= 35, stop)
+    return first
+
+
+def measure(sample, stop, skip_changes=0, emit=None, on_dark=None):
+    first=wait_encounter_start(sample,stop,skip_changes,emit,on_dark)
     if emit: emit('Encounter timing started. Waiting for the next screen change.')
     start = time.monotonic()
     wait_sample(sample, lambda p: difference(p, first) >= 35, stop)
@@ -140,3 +145,4 @@ def choose_bottom_window(windows):
     if len(matches) > 1:
         raise ValueError('More than one cc3dsfs_bot window is open. Close the extra bottom-screen viewers.')
     return matches[0][0]
+

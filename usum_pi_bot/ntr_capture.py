@@ -7,6 +7,7 @@ from collections import OrderedDict
 from io import BytesIO
 from pathlib import Path
 import ipaddress
+import queue
 import select
 import socket
 import struct
@@ -99,6 +100,39 @@ class NtrCapture:
         self.control_warning=False
         self.had_video=False
         self.video_outage=False
+        self.command_queue=queue.Queue(maxsize=1)
+        self.control_lock=threading.Lock()
+        self.command_lock=threading.Lock()
+        self.control_error=None
+
+    def encounter_request(self, stop, timeout=4, capability=False):
+        """Exchange one bounded memory request through the existing control worker."""
+        from encounter_probe import COMMAND, GUARD, ADDRESS, ProbeError
+        from core import Stopped
+        if self.receive_only: raise ProbeError('Memory checks require the bot-owned NTR connection.')
+        with self.command_lock:
+            if stop.is_set() or self.stop.is_set(): raise Stopped()
+            request={'args':(GUARD ^ 1 if capability else GUARD, ADDRESS),
+                     'event':threading.Event(),'reply':None,'error':None,
+                     'deadline':time.monotonic()+timeout}
+            try: self.command_queue.put_nowait(request)
+            except queue.Full: raise ProbeError('Another NTR memory request is still pending.')
+            # Explicit memory use may reconnect control, without requesting video again.
+            if not self.control_lock.locked():
+                worker=threading.Thread(target=self._control,daemon=True)
+                self.threads.append(worker); worker.start()
+            while not request['event'].wait(.05):
+                if stop.is_set() or self.stop.is_set():
+                    request['cancelled']=True
+                    raise Stopped()
+                if time.monotonic()>=request['deadline']:
+                    request['cancelled']=True
+                    raise ProbeError('NTR memory reply timed out. Stopped without resetting the encounter.')
+                if not self.control_lock.locked() and not self.command_queue.empty():
+                    worker=threading.Thread(target=self._control,daemon=True)
+                    self.threads.append(worker);worker.start()
+            if request['error'] is not None: raise ProbeError(str(request['error']))
+            return request['reply']
 
     def emit(self, message):
         if self.log_path:
@@ -195,8 +229,16 @@ class NtrCapture:
             self.stop.wait(.1)
 
     def _control(self):
-        if self.receive_only or self.stream_requested: return
+        if self.stream_requested and self.command_queue.empty(): return
+        if self.receive_only or not self.control_lock.acquire(blocking=False): return
+        try:
+            self._control_loop()
+        finally:
+            self.control_lock.release()
+
+    def _control_loop(self):
         attempts=0
+        pending=None
         while not self.stop.is_set():
             tcp=None
             retry_delay=3
@@ -223,6 +265,9 @@ class NtrCapture:
                             if len(buffer)<size: break
                             message=bytes(buffer[HEADER.size:size])
                             del buffer[:size]
+                            if pending is not None and header[3]==902 and header[1]==pending['sequence']:
+                                pending['reply']=(header,message)
+                                pending['event'].set(); pending=None
                             if self.control_warning:
                                 self.emit('NTR control link restored.')
                                 self.control_warning=False
@@ -236,6 +281,15 @@ class NtrCapture:
                         if now-partial_since>=2:
                             raise TimeoutError('Incomplete NTR control response for two seconds.')
                         continue
+                    if pending is not None and now>=pending['deadline']:
+                        raise TimeoutError('NTR encounter command timed out.')
+                    if pending is None:
+                        try: request=self.command_queue.get_nowait()
+                        except queue.Empty: request=None
+                        if request is not None and not request.get('cancelled') and now<request['deadline']:
+                            pending=request; pending['sequence']=sequence
+                            tcp.sendall(control_packet(sequence,902,pending['args']))
+                            sequence=(sequence+1)&0xffffffff
                     if now-heartbeat>=.25:
                         tcp.sendall(control_packet(sequence)); sequence=(sequence+1)&0xffffffff
                         heartbeat=now
@@ -248,6 +302,14 @@ class NtrCapture:
                 if not self.stop.is_set():
                     retry_delay=self._control_failure(e)
             finally:
+                if pending is not None:
+                    pending['error']='NTR control connection failed during the memory check.'
+                    pending['event'].set(); pending=None
+                while True:
+                    try: request=self.command_queue.get_nowait()
+                    except queue.Empty: break
+                    request['error']='NTR control connection could not complete the memory check.'
+                    request['event'].set()
                 self.tcp=None
                 if tcp: tcp.close()
             if self.stream_requested or retry_delay is None: return
@@ -265,3 +327,4 @@ class NtrCapture:
                 sock.close()
         for thread in self.threads: thread.join(4)
         self.store.invalidate('NTR capture disconnected.')
+

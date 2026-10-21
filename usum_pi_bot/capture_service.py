@@ -38,3 +38,10 @@ class CaptureService:
         if self.backend: self.backend.close()
         self.backend=None; self.config=None
         self.store.invalidate('Capture disconnected.')
+
+    def encounter_request(self, stop, capability=False):
+        from encounter_probe import ProbeError
+        if not isinstance(self.backend,NtrCapture):
+            raise ProbeError('Memory checks currently require NTR wireless capture.')
+        return self.backend.encounter_request(stop,capability=capability)
+

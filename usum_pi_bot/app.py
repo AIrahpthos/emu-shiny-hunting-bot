@@ -10,7 +10,8 @@ from PIL import Image, ImageTk, ImageStat
 from capture_linux import ViewerUnavailable
 from frame_feed import Capture, wait_for_capture
 from capture_service import CaptureService
-from core import Controller, Stopped, EncounterStartTimeout, measure, classify, choose_bottom_window, BOTTOM_WINDOW_PREFIX, trigger_encounter
+from core import Controller, Stopped, EncounterStartTimeout, measure, wait_encounter_start, classify, choose_bottom_window, BOTTOM_WINDOW_PREFIX, trigger_encounter
+from memory_hunt import MemoryHunt, MemoryCheckError
 from navigation import ColourDetector, load_save
 from ntr_support import SOURCES
 from reset_stats import ResetStats
@@ -116,6 +117,10 @@ class App:
         self.bandwidth_entry=ttk.Spinbox(row,from_=1,to=40,width=4,textvariable=self.ntr_bandwidth)
         self.bandwidth_entry.pack(side='left',padx=8)
         self.setup_buttons.extend((self.quality_entry,self.bandwidth_entry))
+        self.memory_check=tk.BooleanVar(value=saved.get('memory_check',False))
+        self.memory_toggle=ttk.Checkbutton(frame,text='Read shiny status from memory (NTR v3, experimental)',variable=self.memory_check)
+        self.memory_toggle.pack(anchor='w',pady=3)
+        self.setup_buttons.append(self.memory_toggle)
         self.window_name=tk.StringVar(value='Capture disconnected. Choose a source and connect.')
         ttk.Label(frame,textvariable=self.window_name,wraplength=730).pack(anchor='w',pady=4)
         self.refresh_button=ttk.Button(frame,text='Reconnect capture',command=lambda:self.connect_capture(reconnect=True))
@@ -333,6 +338,9 @@ class App:
                 low,high=limits[key]
                 if not low <= value <= high: raise ValueError(f'{key} must be between {low} and {high}.')
             options['capture_source']=self.source()
+            options['memory_check']=self.memory_check.get()
+            if options['memory_check'] and self.source()!='NTR wireless':
+                raise ValueError('Memory checks currently require NTR wireless capture.')
             options['auto_connect_capture']=self.auto_connect_capture.get()
             options['ntr_quality'],options['ntr_bandwidth']=self.capture_options()
             options['colour_hz']=int(self.ntr_hz.get())
@@ -370,6 +378,7 @@ class App:
         attempts=0
         consecutive_failures=0
         stats=None
+        memory=None;memory_confirmed=False
         try:
             stats=ResetStats(OUT/'reset-observations.jsonl',o.get('stats_key','unconfigured')) if mode=='hunt' else None
             controller=Controller(ip,self.stop)
@@ -378,6 +387,10 @@ class App:
                 self.emit('D-pad right sent. UDP has no connection acknowledgement: verify the console moved.'); return
             cap=Capture(hwnd,point)
             if hasattr(cap,"stop"): cap.stop=self.stop
+            if o.get('memory_check',False):
+                memory=MemoryHunt(self.capture_service.encounter_request,self.stop,OUT/'memory-encounters.jsonl')
+                memory.check_capability()
+                self.emit('NTR memory reader confirmed. Timing calibration is not used in memory mode.')
             while not self.stop.is_set():
                 phase='before encounter'
                 try:
@@ -394,6 +407,7 @@ class App:
                     if loaded.gradient_seen:
                         self.emit(f'Observed load #{stats.observed_count}; blue → black → red confirmed.')
                     self.emit(f'Startup wait took {time.monotonic()-reset_start:.2f}s; load '+('confirmed.' if loaded.gradient_seen else 'inferred; encounter check required.'))
+                    if memory: memory.prepare()
                     trigger_errors=[]
                     trigger_cancel.clear()
                     def trigger():
@@ -403,7 +417,7 @@ class App:
                             trigger_errors.append(e)
                             self.stop.set()
                     phase='unclassified encounter'
-                    self.emit('Watching bottom screen: dark -> first change -> second change.')
+                    self.emit('Watching bottom screen: dark -> first change -> memory check.' if memory else 'Watching bottom screen: dark -> first change -> second change.')
                     skip_changes=o.get('skip_changes',0) if o.get('ultra_beast',False) else 0
                     if skip_changes:
                         self.emit(f'Ultra Beast mode: skipping {skip_changes} changes after the initial dark screen before timing the encounter.')
@@ -415,16 +429,41 @@ class App:
                         controller.release()
                         if trigger_errors:
                             raise trigger_errors[0]
-                        self.emit('Battle-start dark screen detected. Controls released for timing.')
+                        self.emit('Battle-start dark screen detected. Controls released.')
                     try:
-                        duration=measure(cap.sample,self.stop,skip_changes=skip_changes,emit=self.emit,
-                                         on_dark=stop_encounter_input)
+                        if memory:
+                            wait_encounter_start(cap.sample,self.stop,skip_changes=skip_changes,emit=self.emit,
+                                                 on_dark=stop_encounter_input)
+                            pokemon,read_seconds=memory.observe()
+                        else:
+                            duration=measure(cap.sample,self.stop,skip_changes=skip_changes,emit=self.emit,
+                                             on_dark=stop_encounter_input)
                     finally:
                         trigger_cancel.set()
                         trigger_thread.join()
                         controller.release()
                     if trigger_errors: raise trigger_errors[0]
                     stamp=time.strftime('%Y%m%d-%H%M%S')
+                    if memory:
+                        result='shiny' if pokemon.shiny else 'normal'
+                        self.emit(f'MEMORY {result.upper()}: species #{pokemon.species}, PID {pokemon.personality:08X}, XOR {pokemon.shiny_xor}; check {read_seconds:.3f}s.')
+                        phase='confirmed '+result+' encounter'
+                        consecutive_failures=0
+                        try: cap.grab().save(OUT/f'memory-encounter-{stamp}.png')
+                        except Exception as error: self.emit(f'Could not save memory-result screenshot: {error}')
+                        if pokemon.shiny:
+                            self.events.put(('alert','shiny confirmed by memory'));return
+                        if not memory_confirmed:
+                            self.events.put(('memory_confirmation',None))
+                            self.emit(f'Paused: verify species #{pokemon.species} matches the opponent and it is normal, then confirm. Memory results are saved in out/memory-encounters.jsonl.')
+                            while not self.confirm.wait(.05):
+                                if self.stop.is_set():raise Stopped()
+                            if self.stop.is_set():raise Stopped()
+                            memory_confirmed=True
+                            self.events.put(('memory_confirmed',None))
+                        if not repeat:
+                            self.emit('Single memory encounter complete. No further reset.');return
+                        continue
                     self.emit(f'Measured introduction: {duration:.3f}s.')
                     # Classify before taking a screenshot. Capture loss must never
                     # discard a suspected-shiny or uncertain result already measured.
@@ -463,6 +502,8 @@ class App:
                 except TimeoutError as e:
                     controller.release()
                     if self.stop.is_set(): raise Stopped()
+                    if memory and phase=='unclassified encounter':
+                        raise MemoryCheckError('Encounter detection failed in memory mode; stopped without another reset.') from e
                     if not o.get('adaptive_reset',False): raise
                     consecutive_failures+=1
                     stats.record_failure(attempts,phase,e,consecutive_failures)
@@ -476,6 +517,8 @@ class App:
                     if trigger_thread and trigger_thread.is_alive(): trigger_thread.join()
                     controller.release()
                     if self.stop.is_set(): raise Stopped()
+                    if memory and phase=='unclassified encounter':
+                        raise MemoryCheckError('Capture was interrupted before memory classification; stopped without another reset.') from e
                     if not o.get('auto_recover',False): raise
                     consecutive_failures+=1
                     stats.record_failure(attempts,phase,e,consecutive_failures)
@@ -523,6 +566,10 @@ class App:
                 self.capture_log.see('end'); self.capture_log.configure(state='disabled')
             elif kind=='baseline':
                 self.pending_baseline=value; self.confirm_button.configure(state='normal')
+            elif kind=='memory_confirmation':
+                self.confirm_button.configure(state='normal')
+            elif kind=='memory_confirmed':
+                self.confirm_button.configure(state='disabled')
             elif kind=='confirmed':
                 self.baseline=value; self.confirm_button.configure(state='disabled')
             elif kind=='alert':
@@ -566,3 +613,4 @@ class App:
 
 if __name__=='__main__':
     root=tk.Tk(); App(root); root.mainloop()
+
